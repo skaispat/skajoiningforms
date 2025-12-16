@@ -154,43 +154,7 @@ const JoiningForm = () => {
     return data.publicUrl;
   };
 
-  const fillDummyData = () => {
-    const randomNum = (digits) => Math.floor(Math.random() * (10 ** digits)).toString().padStart(digits, '0');
-    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-    const firstNames = ['Rahul', 'Amit', 'Priya', 'Sneha', 'Vikram', 'Anjali', 'Rohan', 'Kavita', 'Suresh', 'Anita'];
-    const lastNames = ['Sharma', 'Verma', 'Singh', 'Patel', 'Das', 'Kumar', 'Gupta', 'Yadav', 'Mishra', 'Reddy'];
-    const departments = ['Production', 'Quality', 'Maintenance', 'Store', 'HR', 'Admin'];
-    const designations = ['Operator', 'Supervisor', 'Engineer', 'Helper', 'Technician', 'Executive'];
-    const qualifications = ['10th Pass', '12th Pass', 'ITI', 'Diploma', 'B.Tech', 'B.Sc', 'B.Com'];
-
-    const fName = pick(firstNames);
-    const lName = pick(lastNames);
-    const fullName = `${fName} ${lName}`;
-    const fatherName = `${pick(firstNames)} ${lName}`;
-
-    setFormData(prev => ({
-      ...prev,
-      nameAsPerAadhar: fullName,
-      fatherName: fatherName,
-      dateOfBirth: `19${Math.floor(Math.random() * (99 - 75 + 1) + 75)}-${randomNum(2).replace(/^00/, '01').replace(/^1[3-9]/, '12')}-${randomNum(2).replace(/^00/, '01').replace(/^[3-9][2-9]/, '28')}`, // Rough random DOB
-      gender: Math.random() > 0.5 ? 'Male' : 'Female',
-      department: pick(departments),
-      mobileNo: '+91' + (Math.floor(Math.random() * 4000000000) + 6000000000).toString(), // Random 9/8/7/6 start
-      personalEmail: `${fName.toLowerCase()}.${lName.toLowerCase()}${randomNum(3)}@example.com`,
-      familyMobileNo: '+91' + (Math.floor(Math.random() * 4000000000) + 6000000000).toString(),
-      relationshipWithFamily: pick(['Father', 'Mother', 'Spouse', 'Brother']),
-      currentAddress: `${randomNum(3)}, Sector ${randomNum(2)}, Industrial Area, Gurgaon, Haryana - ${randomNum(6)}`,
-      dateOfJoining: new Date().toISOString().split('T')[0],
-      designation: pick(designations),
-      highestQualification: pick(qualifications),
-      aadharCardNo: randomNum(12),
-      bankAccountNo: randomNum(14),
-      ifscCode: 'HDFC000' + randomNum(4),
-      branchName: pick(['M G Road', 'Cyber City', 'Udyog Vihar', 'Sector 14', 'DLF Phase 3']),
-    }));
-    toast.success('Random dummy data filled!');
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -459,14 +423,7 @@ const JoiningForm = () => {
               </div>
 
               <div className="flex items-center gap-4 order-1 md:order-3 w-full md:w-auto justify-end">
-                <button
-                  type="button"
-                  onClick={fillDummyData}
-                  className="hidden md:block text-xs font-medium text-slate-400 hover:text-[#991B1B] transition-colors"
-                >
-                  Fill Dummy Data
-                </button>
-                <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+
                 <button
                   type="button"
                   className="px-6 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors rounded-xl hover:bg-slate-50"
