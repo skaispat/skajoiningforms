@@ -13,6 +13,23 @@ import {
 import toast from 'react-hot-toast';
 import { supabase } from '../supabaseClient';
 
+const DEPARTMENTS = [
+  "Hr",
+  "Admin",
+  "Sms",
+  "Rolling mill",
+  "Sms Lab",
+  "Dispatch",
+  "R/M Purchase",
+  "Store Purchase",
+  "Store",
+  "WB (Weightment Bridge)",
+  "HouseKeeping",
+  "Health & Safety",
+  "Accounts",
+  "Sales"
+];
+
 const JoiningForm = () => {
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
@@ -137,6 +154,19 @@ const JoiningForm = () => {
     const file = e.target.files[0];
     if (file) {
       setFormData(prev => ({ ...prev, [fieldName]: file }));
+    }
+  };
+
+  const [isCustomDept, setIsCustomDept] = useState(false);
+
+  const handleDeptSelectChange = (e) => {
+    const value = e.target.value;
+    if (value === 'Other') {
+      setIsCustomDept(true);
+      setFormData(prev => ({ ...prev, department: '' }));
+    } else {
+      setIsCustomDept(false);
+      setFormData(prev => ({ ...prev, department: value }));
     }
   };
 
@@ -351,7 +381,28 @@ const JoiningForm = () => {
           {/* 2. Employment Details */}
           <SectionCard title="Employment Details" icon={Briefcase}>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <InputField label="Department (विभाग)" name="department" value={formData.department} onChange={handleInputChange} required placeholder="e.g. Production" />
+              <div>
+                <SelectField
+                  label="Department (विभाग)"
+                  name="departmentSelect"
+                  value={isCustomDept ? 'Other' : (DEPARTMENTS.includes(formData.department) ? formData.department : '')}
+                  onChange={handleDeptSelectChange}
+                  options={[...DEPARTMENTS, 'Other']}
+                  required
+                />
+                {isCustomDept && (
+                  <div className="mt-3">
+                    <InputField
+                      label="Specify Department (विभाग निर्दिष्ट करें)"
+                      name="department"
+                      value={formData.department}
+                      onChange={handleInputChange}
+                      required
+                      placeholder="Enter department name"
+                    />
+                  </div>
+                )}
+              </div>
               <InputField label="Designation (पद)" name="designation" value={formData.designation} onChange={handleInputChange} required placeholder="e.g. Operator" />
               <InputField label="Date of Joining (जॉइनिंग की तारीख)" name="dateOfJoining" type="date" value={formData.dateOfJoining} onChange={handleInputChange} required />
               <InputField label="Highest Qualification (उच्चतम योग्यता)" name="highestQualification" value={formData.highestQualification} onChange={handleInputChange} placeholder="e.g. 12th Pass" />
