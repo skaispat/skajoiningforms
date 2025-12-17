@@ -10,7 +10,7 @@ function App() {
     <BrowserRouter>
       <Toaster position="top-right" />
       <Routes>
-        <Route path="/joining-form" element={<JoiningForm />} />
+        <Route path="/joining-form/:joiningId?" element={<JoiningForm />} />
         <Route path="/leave-approve/:approverId/:id" element={<ApprovalForm />} />
         <Route path="/gatepass-approve/:approverId/:id" element={<GatePassApproval />} />
         <Route path="/" element={<Navigate to="/joining-form" replace />} />

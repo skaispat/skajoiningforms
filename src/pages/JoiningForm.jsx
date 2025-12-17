@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Upload,
   User,
@@ -13,6 +14,7 @@ import toast from 'react-hot-toast';
 import { supabase } from '../supabaseClient';
 
 const JoiningForm = () => {
+  const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submittedId, setSubmittedId] = useState(null);
@@ -87,6 +89,13 @@ const JoiningForm = () => {
 
     fetchLastId();
   }, []);
+
+  // Update URL with generated ID
+  useEffect(() => {
+    if (formData.joiningId && !isSubmitted) {
+      navigate(`/joining-form/${formData.joiningId}`, { replace: true });
+    }
+  }, [formData.joiningId, navigate, isSubmitted]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
