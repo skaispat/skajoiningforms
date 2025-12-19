@@ -140,8 +140,13 @@ const GatePassApproval = () => {
 
             if (action === 'approve') {
                 if (isHodAction) {
-                    newStatus = 'Pending HR';
-                    logAction = 'Approved';
+                    if (approver.department === 'HR') {
+                        newStatus = 'Approved'; // Skip 'Pending HR' step if HOD is HR
+                        logAction = 'Approved (HOD & HR)';
+                    } else {
+                        newStatus = 'Pending HR';
+                        logAction = 'Approved';
+                    }
                 } else if (isHrAction) {
                     newStatus = 'Approved';
                     logAction = 'Approved';
@@ -160,6 +165,11 @@ const GatePassApproval = () => {
                     hod_name: approver.full_name
                 }),
                 ...(isHrAction && {
+                    hr_remarks: currentRemarks,
+                    hr_id: approver.emp_id
+                }),
+                // If HOD is HR and skipping, ensure HR fields are also filled
+                ...((isHodAction && approver.department === 'HR' && action === 'approve') && {
                     hr_remarks: currentRemarks,
                     hr_id: approver.emp_id
                 })
@@ -202,7 +212,7 @@ const GatePassApproval = () => {
 
             setSuccessData({
                 action: action === 'approve' ? 'Approved' : 'Rejected',
-                role: isHodAction ? 'HOD' : 'HR'
+                role: (isHodAction && approver.department === 'HR') ? 'HR' : (isHodAction ? 'HOD' : 'HR')
             });
             setActionSuccess(true);
 
