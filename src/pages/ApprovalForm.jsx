@@ -116,18 +116,18 @@ const ApprovalForm = () => {
             const isHrAction = request.status === 'Pending HR';
 
             // Validate Approver Role
+            const isEffectiveHR = approver.department?.toUpperCase() === 'HR' || approver.role === 'admin';
+
             if (isHodAction) {
-                if (!approver.is_hod && approver.department !== 'HR' && approver.role !== 'admin') {
-                    if (!approver.is_hod) {
-                        toast.error('You do not have HOD permissions.');
-                        setActionLoading(false);
-                        return;
-                    }
+                if (!approver.is_hod && !isEffectiveHR) {
+                    toast.error('You do not have HOD permissions.');
+                    setActionLoading(false);
+                    return;
                 }
             }
 
             if (isHrAction) {
-                if (approver.department !== 'HR') {
+                if (!isEffectiveHR) {
                     toast.error('You do not have HR permissions.');
                     setActionLoading(false);
                     return;
@@ -167,7 +167,7 @@ const ApprovalForm = () => {
                     hr_name: approver.full_name
                 }),
                 // If HOD is HR and skipping, ensure HR fields are also filled
-                ...((isHodAction && approver.department === 'HR' && action === 'approve') && {
+                ...((isHodAction && (approver.department?.toUpperCase() === 'HR' || approver.role === 'admin') && action === 'approve') && {
                     hr_remarks: currentRemarks,
                     hr_id: approver.emp_id,
                     hr_name: approver.full_name
@@ -211,7 +211,7 @@ const ApprovalForm = () => {
 
             setSuccessData({
                 action: action === 'approve' ? 'Approved' : 'Rejected',
-                role: (isHodAction && approver.department === 'HR') ? 'HR' : (isHodAction ? 'HOD' : 'HR')
+                role: (isHodAction && (approver.department?.toUpperCase() === 'HR' || approver.role === 'admin')) ? 'HR' : (isHodAction ? 'HOD' : 'HR')
             });
             setActionSuccess(true);
 
@@ -229,8 +229,8 @@ const ApprovalForm = () => {
     if (error) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-500 font-medium">{error}</div>;
     if (!request) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-slate-500">Request not found</div>;
 
-    const isActionable = ((request.status === 'Pending' || request.status === 'Pending HOD') && (approver?.is_hod || approver?.department === 'HR')) ||
-        (request.status === 'Pending HR' && approver?.department === 'HR');
+    const isActionable = ((request.status === 'Pending' || request.status === 'Pending HOD') && (approver?.is_hod || approver?.department?.toUpperCase() === 'HR' || approver?.role === 'admin')) ||
+        (request.status === 'Pending HR' && (approver?.department?.toUpperCase() === 'HR' || approver?.role === 'admin'));
 
     const notActionableReason = !isActionable && (request.status === 'Pending' || request.status === 'Pending HOD' || request.status === 'Pending HR')
         ? "You are not authorized to approve this request at this stage."
