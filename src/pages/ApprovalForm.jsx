@@ -41,6 +41,16 @@ const ApprovalForm = () => {
                 .eq('emp_id', approverId)
                 .maybeSingle();
 
+            // If not found by emp_id, try by UUID
+            if (!approverData) {
+                const { data: approverUuidData } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('id', approverId)
+                    .maybeSingle();
+                approverData = approverUuidData;
+            }
+
             // Fetch HR Name (for display purposes if needed)
             const { data: hrData } = await supabase
                 .from('users')
@@ -101,7 +111,8 @@ const ApprovalForm = () => {
             let newStatus = request.status;
             let logAction = '';
 
-            const isHodAction = request.status === 'Pending';
+            const isHodAction = request.status === 'Pending' || request.status === 'Pending HOD';
+            // If HOD ID is 1 (Default), it should have been 'Pending HR' from start, so this logic holds.
             const isHrAction = request.status === 'Pending HR';
 
             // Validate Approver Role
@@ -131,19 +142,14 @@ const ApprovalForm = () => {
 
             if (action === 'approve') {
                 if (isHodAction) {
-                    if (approver.department === 'HR') {
-                        newStatus = 'Approved'; // Skip 'Pending HR' step if HOD is HR
-                        logAction = 'Approved (HOD & HR)';
-                    } else {
-                        newStatus = 'Pending HR';
-                        logAction = 'Approved';
-                    }
+                    newStatus = 'Pending HR';
+                    logAction = 'Approved';
                 } else if (isHrAction) {
                     newStatus = 'Approved';
                     logAction = 'Approved';
                 }
             } else {
-                newStatus = isHodAction ? 'Rejected by HOD' : 'Rejected by HR';
+                newStatus = 'Rejected';
                 logAction = 'Rejected';
             }
 
@@ -157,12 +163,14 @@ const ApprovalForm = () => {
                 }),
                 ...(isHrAction && {
                     hr_remarks: currentRemarks,
-                    hr_id: approver.emp_id
+                    hr_id: approver.emp_id,
+                    hr_name: approver.full_name
                 }),
                 // If HOD is HR and skipping, ensure HR fields are also filled
                 ...((isHodAction && approver.department === 'HR' && action === 'approve') && {
                     hr_remarks: currentRemarks,
-                    hr_id: approver.emp_id
+                    hr_id: approver.emp_id,
+                    hr_name: approver.full_name
                 })
             };
 
@@ -221,10 +229,10 @@ const ApprovalForm = () => {
     if (error) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-500 font-medium">{error}</div>;
     if (!request) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-slate-500">Request not found</div>;
 
-    const isActionable = (request.status === 'Pending' && approver?.is_hod) ||
+    const isActionable = ((request.status === 'Pending' || request.status === 'Pending HOD') && (approver?.is_hod || approver?.department === 'HR')) ||
         (request.status === 'Pending HR' && approver?.department === 'HR');
 
-    const notActionableReason = !isActionable && (request.status === 'Pending' || request.status === 'Pending HR')
+    const notActionableReason = !isActionable && (request.status === 'Pending' || request.status === 'Pending HOD' || request.status === 'Pending HR')
         ? "You are not authorized to approve this request at this stage."
         : null;
 
@@ -277,7 +285,7 @@ const ApprovalForm = () => {
                         {request.status.includes('Rejected') ? <X className="w-3 h-3" /> :
                             request.status === 'Approved' ? <Check className="w-3 h-3" /> :
                                 <Clock className="w-3 h-3" />}
-                        {request.status}
+                        {(request.status === 'Pending' || request.status === 'Pending HOD') ? 'Pending HOD' : (request.status?.includes('Rejected') ? 'Rejected' : request.status)}
                     </div>
                 </div>
 
@@ -381,11 +389,23 @@ const ApprovalForm = () => {
                                 </div>
                             </div>
                         )}
+
+                        {request.hr_remarks && (
+                            <div className="bg-purple-50/50 p-4 rounded-xl border border-purple-100">
+                                <h5 className="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-2">HR Remarks</h5>
+                                <div className="flex gap-3">
+                                    <div className="w-0.5 bg-purple-300 rounded-full" />
+                                    <p className="text-xs leading-relaxed text-purple-900">
+                                        {request.hr_remarks}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Footer Action Area - Compact */}
-                {isActionable && (
+                {request && (
                     <div className="p-4 bg-white border-t border-gray-100 shadow-xl z-30">
                         <div className="flex gap-3 items-end">
                             <div className="relative flex-1">
@@ -402,8 +422,8 @@ const ApprovalForm = () => {
                         <div className="grid grid-cols-2 gap-3 mt-3">
                             <button
                                 onClick={() => handleAction('reject')}
-                                disabled={actionLoading}
-                                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs text-red-600 bg-white border border-red-100 hover:bg-red-50 hover:border-red-200 transition-all disabled:opacity-50"
+                                disabled={actionLoading || !isActionable}
+                                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs text-red-600 bg-white border border-red-100 hover:bg-red-50 hover:border-red-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {actionLoading ? (
                                     <div className="w-3 h-3 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
@@ -416,8 +436,8 @@ const ApprovalForm = () => {
                             </button>
                             <button
                                 onClick={() => handleAction('approve')}
-                                disabled={actionLoading}
-                                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs text-white bg-[#16A34A] hover:bg-[#15803d] shadow-lg shadow-green-100 hover:shadow-xl hover:shadow-green-200 transition-all active:scale-[0.98] disabled:opacity-50"
+                                disabled={actionLoading || !isActionable}
+                                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs text-white bg-[#16A34A] hover:bg-[#15803d] shadow-lg shadow-green-100 hover:shadow-xl hover:shadow-green-200 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {actionLoading ? (
                                     <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
