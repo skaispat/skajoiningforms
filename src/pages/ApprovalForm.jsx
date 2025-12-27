@@ -35,13 +35,25 @@ const ApprovalForm = () => {
 
             // Fetch Approver Details
             // Fetch by emp_id (schema primary key)
+            // Fetch Approver Details
+            // Try fetching by full_name first (as per new requirements)
             let { data: approverData, error: approverError } = await supabase
                 .from('users')
                 .select('*')
-                .eq('emp_id', approverId)
+                .eq('full_name', approverId)
                 .maybeSingle();
 
-            // If not found by emp_id, try by UUID
+            // If not found by full_name, try by emp_id
+            if (!approverData) {
+                const { data: approverEmpData } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('emp_id', approverId)
+                    .maybeSingle();
+                approverData = approverEmpData;
+            }
+
+            // If still not found, try by UUID
             if (!approverData) {
                 const { data: approverUuidData } = await supabase
                     .from('users')
@@ -72,7 +84,7 @@ const ApprovalForm = () => {
             if (approverData) {
                 setApprover(approverData);
             } else {
-                console.warn('Approver not found for ID:', approverId);
+                console.warn('Approver not found for ID/Name:', approverId);
             }
 
         } catch (err) {
@@ -115,24 +127,8 @@ const ApprovalForm = () => {
             // If HOD ID is 1 (Default), it should have been 'Pending HR' from start, so this logic holds.
             const isHrAction = request.status === 'Pending HR';
 
-            // Validate Approver Role
-            const isEffectiveHR = approver.department?.toUpperCase() === 'HR' || approver.role === 'admin';
-
-            if (isHodAction) {
-                if (!approver.is_hod && !isEffectiveHR) {
-                    toast.error('You do not have HOD permissions.');
-                    setActionLoading(false);
-                    return;
-                }
-            }
-
-            if (isHrAction) {
-                if (!isEffectiveHR) {
-                    toast.error('You do not have HR permissions.');
-                    setActionLoading(false);
-                    return;
-                }
-            }
+            // Permissions allowed for anyone with the link
+            // Validate Approver Role block removed
 
             if (!isHodAction && !isHrAction) {
                 toast.error('Action already taken or invalid status.');
@@ -167,7 +163,7 @@ const ApprovalForm = () => {
                     hr_name: approver.full_name
                 }),
                 // If HOD is HR and skipping, ensure HR fields are also filled
-                ...((isHodAction && (approver.department?.toUpperCase() === 'HR' || approver.role === 'admin') && action === 'approve') && {
+                ...((isHodAction && approver.department === 'HR' && action === 'approve') && {
                     hr_remarks: currentRemarks,
                     hr_id: approver.emp_id,
                     hr_name: approver.full_name
@@ -211,7 +207,7 @@ const ApprovalForm = () => {
 
             setSuccessData({
                 action: action === 'approve' ? 'Approved' : 'Rejected',
-                role: (isHodAction && (approver.department?.toUpperCase() === 'HR' || approver.role === 'admin')) ? 'HR' : (isHodAction ? 'HOD' : 'HR')
+                role: (isHodAction && approver.department === 'HR') ? 'HR' : (isHodAction ? 'HOD' : 'HR')
             });
             setActionSuccess(true);
 
@@ -229,12 +225,26 @@ const ApprovalForm = () => {
     if (error) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-500 font-medium">{error}</div>;
     if (!request) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-slate-500">Request not found</div>;
 
-    const isActionable = ((request.status === 'Pending' || request.status === 'Pending HOD') && (approver?.is_hod || approver?.department?.toUpperCase() === 'HR' || approver?.role === 'admin')) ||
-        (request.status === 'Pending HR' && (approver?.department?.toUpperCase() === 'HR' || approver?.role === 'admin'));
+    const isPendingHOD = request.status === 'Pending' || request.status === 'Pending HOD';
+    const isPendingHR = request.status === 'Pending HR';
 
-    const notActionableReason = !isActionable && (request.status === 'Pending' || request.status === 'Pending HOD' || request.status === 'Pending HR')
-        ? "You are not authorized to approve this request at this stage."
-        : null;
+    // User Logic: Block approverId 1 during HOD phase, allow during HR phase
+    const isActionable = (isPendingHOD && approverId !== '1') || isPendingHR;
+
+    let statusMessage = null;
+    let statusStyles = { bg: 'bg-amber-50', border: 'border-amber-100', text: 'text-amber-800', iconColor: 'text-amber-600', Icon: Shield };
+
+    if (!isActionable) {
+        if (request.status === 'Approved') {
+            statusMessage = `The leave for ${request.employee_name} has been approved.`;
+            statusStyles = { bg: 'bg-emerald-50', border: 'border-emerald-100', text: 'text-emerald-800', iconColor: 'text-emerald-600', Icon: Check };
+        } else if (request.status?.includes('Rejected')) {
+            statusMessage = `The leave for ${request.employee_name} has been rejected.`;
+            statusStyles = { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-800', iconColor: 'text-red-600', Icon: X };
+        } else {
+            statusMessage = "Please Wait Until The HOD Has Approved Or Rejected The Leave Request.";
+        }
+    }
 
     const dayCount = calculateDays(request.leave_date_start, request.leave_date_end);
 
@@ -307,7 +317,7 @@ const ApprovalForm = () => {
                                         <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Action Required</p>
                                     </div>
                                     <h3 className="text-xl font-bold mb-1 tracking-tight leading-tight text-slate-900">
-                                        Hi, {approver?.full_name?.split(' ')[0] || 'Approver'}
+                                        Hi, {approver?.full_name || 'Approver'}
                                     </h3>
                                     <p className="text-slate-500 text-xs font-medium leading-relaxed">
                                         Review leave request from <span className="text-slate-900 font-bold">{request.employee_name}</span>.
@@ -316,10 +326,10 @@ const ApprovalForm = () => {
                                 {/* Decorative elements */}
                                 <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50 rounded-full blur-2xl -mr-10 -mt-10 transition-all group-hover:bg-indigo-100/50" />
                             </div>
-                        ) : notActionableReason ? (
-                            <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-start gap-3 h-full">
-                                <Shield className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                                <p className="text-xs text-amber-800 font-medium leading-relaxed">{notActionableReason}</p>
+                        ) : statusMessage ? (
+                            <div className={`${statusStyles.bg} rounded-2xl p-4 border ${statusStyles.border} flex items-start gap-3 h-full`}>
+                                <statusStyles.Icon className={`w-5 h-5 ${statusStyles.iconColor} shrink-0 mt-0.5`} />
+                                <p className={`text-xs ${statusStyles.text} font-medium leading-relaxed`}>{statusMessage}</p>
                             </div>
                         ) : null}
 
@@ -405,7 +415,7 @@ const ApprovalForm = () => {
                 </div>
 
                 {/* Footer Action Area - Compact */}
-                {request && (
+                {request && isActionable && (
                     <div className="p-4 bg-white border-t border-gray-100 shadow-xl z-30">
                         <div className="flex gap-3 items-end">
                             <div className="relative flex-1">

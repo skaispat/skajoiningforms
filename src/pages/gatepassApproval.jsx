@@ -34,14 +34,25 @@ const GatePassApproval = () => {
             if (!data) throw new Error('Request not found');
 
             // Fetch Approver Details
-            // Try fetching by emp_id first
+            // Fetch Approver Details
+            // Try fetching by full_name first (as per new requirements)
             let { data: approverData, error: approverError } = await supabase
                 .from('users')
                 .select('*')
-                .eq('emp_id', approverId)
+                .eq('full_name', approverId)
                 .maybeSingle();
 
-            // If not found by emp_id, try by UUID
+            // If not found by full_name, try by emp_id
+            if (!approverData) {
+                const { data: approverEmpData } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('emp_id', approverId)
+                    .maybeSingle();
+                approverData = approverEmpData;
+            }
+
+            // If still not found, try by UUID
             if (!approverData) {
                 const { data: approverUuidData } = await supabase
                     .from('users')
@@ -74,7 +85,7 @@ const GatePassApproval = () => {
             if (approverData) {
                 setApprover(approverData);
             } else {
-                console.warn('Approver not found for ID:', approverId);
+                console.warn('Approver not found for ID/Name:', approverId);
             }
 
         } catch (err) {
@@ -109,28 +120,8 @@ const GatePassApproval = () => {
             const isHodAction = request.status === 'Pending' || request.status === 'Pending HOD';
             const isHrAction = request.status === 'Pending HR';
 
-            // Validate Approver Role
-            if (isHodAction) {
-                if (!approver.is_hod && approver.department !== 'HR' && approver.role !== 'admin') {
-                    // Allow if approver name matches hod_name in request (loose check if backend logic is based on names)
-                    // or stricter check:
-                    if (!approver.is_hod) {
-                        // Double check if this user is actually the assigned HOD for this request could be done here, 
-                        // but sticking to basic permission check for now as per Duplicate request.
-                        toast.error('You do not have HOD permissions.');
-                        setActionLoading(false);
-                        return;
-                    }
-                }
-            }
-
-            if (isHrAction) {
-                if (approver.department !== 'HR') {
-                    toast.error('You do not have HR permissions.');
-                    setActionLoading(false);
-                    return;
-                }
-            }
+            // Permissions allowed for anyone with the link
+            // Validate Approver Role block removed
 
             if (!isHodAction && !isHrAction) {
                 toast.error('Action already taken or invalid status.');
@@ -227,8 +218,7 @@ const GatePassApproval = () => {
     if (error) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-500 font-medium">{error}</div>;
     if (!request) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-slate-500">Request not found</div>;
 
-    const isActionable = ((request.status === 'Pending' || request.status === 'Pending HOD') && (approver?.is_hod || approver?.department === 'HR')) ||
-        (request.status === 'Pending HR' && approver?.department === 'HR');
+    const isActionable = request.status === 'Pending' || request.status === 'Pending HOD' || request.status === 'Pending HR';
 
     const notActionableReason = !isActionable && (request.status === 'Pending' || request.status === 'Pending HOD' || request.status === 'Pending HR')
         ? "You are not authorized to approve this request at this stage."
@@ -302,7 +292,7 @@ const GatePassApproval = () => {
                                         <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Action Required</p>
                                     </div>
                                     <h3 className="text-xl font-bold mb-1 tracking-tight leading-tight text-slate-900">
-                                        Hi, {approver?.full_name?.split(' ')[0] || 'Approver'}
+                                        Hi, {approver?.full_name || 'Approver'}
                                     </h3>
                                     <p className="text-slate-500 text-xs font-medium leading-relaxed">
                                         Review gate pass request from <span className="text-slate-900 font-bold">{request.employee_name}</span>.
