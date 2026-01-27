@@ -15,10 +15,16 @@ import {
   Quote,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { sendWhatsappMessageToHr } from "../utils/sendWhatsappMessageToHr";
+import {
+  sendApprovedMessageToEmployee,
+  sendRejectedMessageToEmployee,
+} from "../utils/sendWhatsappMessageToEmployee";
 
 const ApprovalForm = () => {
   const { approverId, id } = useParams();
   const [request, setRequest] = useState(null);
+
   const [approver, setApprover] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -87,6 +93,13 @@ const ApprovalForm = () => {
         .limit(1)
         .maybeSingle();
 
+      // Fetch Employee Phone Number from users table
+      const { data: employeeData } = await supabase
+        .from("users")
+        .select("phone_number")
+        .eq("full_name", data.employee_name)
+        .maybeSingle();
+
       setRequest({
         ...data,
         startDate: formatDate(data.leave_date_start),
@@ -94,6 +107,7 @@ const ApprovalForm = () => {
         hr_name: hrData?.full_name || "HR Department",
         hr_phone: hrData?.phone_number,
         hr_id_val: hrData?.emp_id,
+        employee_phone: employeeData?.phone_number,
       });
 
       if (approverData) {
@@ -222,6 +236,83 @@ const ApprovalForm = () => {
         .eq("request_id", id)
         .eq("request_type", "Leave");
 
+      console.log(newStatus, "new status");
+      // Send WhatsApp message to HR when HOD approves (status becomes "Pending HR")
+      if (newStatus === "Pending HR") {
+        const hrMessageResult = await sendWhatsappMessageToHr({
+          employeId: request.hr_id, // HR ID from the request
+          tableid: id,
+          employeeName: request.employee_name,
+          empId: request.emp_id,
+          department: request.department,
+          leaveType: request.leave_type,
+          fromDate: request.leave_date_start,
+          toDate: request.leave_date_end,
+          totalDays: calculateDays(
+            request.leave_date_start,
+            request.leave_date_end,
+          ),
+          reason: request.remarks,
+        });
+
+        if (!hrMessageResult.success) {
+          console.warn("Failed to send WhatsApp to HR:", hrMessageResult.error);
+          // Not throwing error as the main action already succeeded
+        }
+      }
+
+      // Send WhatsApp message to Employee when HR approves or rejects (final action)
+      // Only send when newStatus is "Approved" or when HR rejects (isHrAction && newStatus === "Rejected")
+      const isHrFinalAction =
+        (newStatus === "Approved" && isHrAction) ||
+        (newStatus === "Rejected" && isHrAction);
+
+      if (isHrFinalAction && request.employee_phone) {
+        if (action === "approve") {
+          // Template D: HR Approves → Final Message to User
+          const approvedResult = await sendApprovedMessageToEmployee({
+            employeePhone: request.employee_phone,
+            employeeName: request.employee_name,
+            leaveType: request.leave_type,
+            fromDate: request.leave_date_start,
+            toDate: request.leave_date_end,
+            totalDays: calculateDays(
+              request.leave_date_start,
+              request.leave_date_end,
+            ),
+            reason: request.remarks,
+          });
+
+          if (!approvedResult.success) {
+            console.warn(
+              "Failed to send approved message to employee:",
+              approvedResult.error,
+            );
+          }
+        } else {
+          // Template E: HR Rejects → Final Rejection Message to User
+          const rejectedResult = await sendRejectedMessageToEmployee({
+            employeePhone: request.employee_phone,
+            employeeName: request.employee_name,
+            leaveType: request.leave_type,
+            fromDate: request.leave_date_start,
+            toDate: request.leave_date_end,
+            totalDays: calculateDays(
+              request.leave_date_start,
+              request.leave_date_end,
+            ),
+            hrRemarks: currentRemarks,
+          });
+
+          if (!rejectedResult.success) {
+            console.warn(
+              "Failed to send rejected message to employee:",
+              rejectedResult.error,
+            );
+          }
+        }
+      }
+
       toast.success(
         `Request ${action === "approve" ? "Approved" : "Rejected"} Successfully`,
       );
@@ -317,6 +408,9 @@ const ApprovalForm = () => {
   const isPendingHOD =
     request.status === "Pending" || request.status === "Pending HOD";
   const isPendingHR = request.status === "Pending HR";
+
+  console.log(isPendingHOD, "isPendingHOD");
+  console.log(isPendingHR, "ispending hr");
 
   // User Logic: Block approverId 1 during HOD phase, allow during HR phase
   const isActionable = (isPendingHOD && approverId !== "1") || isPendingHR;
