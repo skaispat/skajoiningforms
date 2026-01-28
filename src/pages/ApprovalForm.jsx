@@ -34,6 +34,7 @@ const ApprovalForm = () => {
   const [error, setError] = useState(null);
   const [actionSuccess, setActionSuccess] = useState(false);
   const [successData, setSuccessData] = useState({ action: "", role: "" });
+  const [editableEndDate, setEditableEndDate] = useState("");
 
   // Show popup if params are missing - placed after all hooks
   const missingParams = !approverId || !id;
@@ -111,6 +112,8 @@ const ApprovalForm = () => {
         hr_id_val: hrData?.emp_id,
         employee_phone: employeeData?.phone_number,
       });
+      // Initialize editable end date with the original value
+      setEditableEndDate(data.leave_date_end || "");
 
       if (approverData) {
         setApprover(approverData);
@@ -185,6 +188,11 @@ const ApprovalForm = () => {
       // Update leave_management
       const updateData = {
         status: newStatus,
+        // Include updated end date if changed
+        ...(editableEndDate &&
+          editableEndDate !== request.leave_date_end && {
+            leave_date_end: editableEndDate,
+          }),
         ...(isHodAction && {
           hod_remarks: currentRemarks,
           hod_id: approver.emp_id,
@@ -249,10 +257,10 @@ const ApprovalForm = () => {
           department: request.department,
           leaveType: request.leave_type,
           fromDate: request.leave_date_start,
-          toDate: request.leave_date_end,
+          toDate: editableEndDate || request.leave_date_end,
           totalDays: calculateDays(
             request.leave_date_start,
-            request.leave_date_end,
+            editableEndDate || request.leave_date_end,
           ),
           reason: request.remarks,
         });
@@ -277,10 +285,10 @@ const ApprovalForm = () => {
             employeeName: request.employee_name,
             leaveType: request.leave_type,
             fromDate: request.leave_date_start,
-            toDate: request.leave_date_end,
+            toDate: editableEndDate || request.leave_date_end,
             totalDays: calculateDays(
               request.leave_date_start,
-              request.leave_date_end,
+              editableEndDate || request.leave_date_end,
             ),
             reason: request.remarks,
           });
@@ -298,10 +306,10 @@ const ApprovalForm = () => {
             employeeName: request.employee_name,
             leaveType: request.leave_type,
             fromDate: request.leave_date_start,
-            toDate: request.leave_date_end,
+            toDate: editableEndDate || request.leave_date_end,
             totalDays: calculateDays(
               request.leave_date_start,
-              request.leave_date_end,
+              editableEndDate || request.leave_date_end,
             ),
             hrRemarks: currentRemarks,
           });
@@ -481,12 +489,9 @@ const ApprovalForm = () => {
               ? `This request has been processed by the HR Department.`
               : `This request has been processed by the Head of Department.`}
           </p>
-          <button
-            onClick={() => window.close()}
-            className="w-full py-4 text-sm font-bold text-white transition-all shadow-xl bg-slate-900 rounded-xl hover:bg-black shadow-slate-200"
-          >
-            Close Window
-          </button>
+          <p className="text-sm font-medium text-slate-400">
+            You can close this window now
+          </p>
         </div>
       </div>
     );
@@ -636,9 +641,19 @@ const ApprovalForm = () => {
               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
                 End
               </p>
-              <p className="text-sm font-bold text-slate-900">
-                {request.endDate}
-              </p>
+              {isActionable ? (
+                <input
+                  type="date"
+                  value={editableEndDate}
+                  onChange={(e) => setEditableEndDate(e.target.value)}
+                  min={request.leave_date_start}
+                  className="px-2 py-1 text-sm font-bold border border-gray-200 rounded-lg text-slate-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              ) : (
+                <p className="text-sm font-bold text-slate-900">
+                  {request.endDate}
+                </p>
+              )}
             </div>
           </div>
 
