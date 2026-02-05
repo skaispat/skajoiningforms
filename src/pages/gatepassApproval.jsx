@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { FileText, User, Briefcase, Calendar, Clock, MessageSquare, Check, X, Shield, ChevronRight, Quote, MapPin, Phone, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { sendGatePassMessageToHr, sendGatePassApprovedToEmployee, sendGatePassRejectedToEmployee } from '../utils/sendGatePassWhatsapp';
 
 const GatePassApproval = () => {
     const { approverId, id } = useParams();
@@ -33,7 +34,6 @@ const GatePassApproval = () => {
             if (error) throw error;
             if (!data) throw new Error('Request not found');
 
-            // Fetch Approver Details
             // Fetch Approver Details
             // Try fetching by full_name first (as per new requirements)
             let { data: approverData, error: approverError } = await supabase
@@ -195,6 +195,95 @@ const GatePassApproval = () => {
                 .update(logUpdateData)
                 .eq('request_id', id)
                 .eq('request_type', 'Gate Pass'); // Changed to Gate Pass
+
+            // Send WhatsApp message to HR when HOD approves (status becomes "Pending HR")
+            console.log('newStatus:', newStatus);
+            
+            if (newStatus === 'Pending HR') {
+                console.log('Sending WhatsApp to HR...');
+                console.log('request.hr_id_val:', request.hr_id_val);
+                console.log('approverId:', approverId);
+                
+                const formatDateTime = (dateString) => {
+                    if (!dateString) return 'N/A';
+                    return new Date(dateString).toLocaleString('en-GB', {
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                    });
+                };
+
+                const hrMessageResult = await sendGatePassMessageToHr({
+                    employeId: request.hr_id_val || approverId || 'HR', // Fallback to approverId or 'HR'
+                    tableid: id,
+                    employeeName: request.employee_name,
+                    empId: request.users?.emp_id || 'N/A',
+                    department: 'Gate Pass',
+                    leaveType: 'Gate Pass',
+                    fromDate: formatDateTime(request.departure_from_plant),
+                    toDate: formatDateTime(request.arrival_at_plant),
+                    totalDays: 'N/A',
+                    reason: request.place_reason_to_visit || 'No reason specified',
+                });
+
+                if (!hrMessageResult.success) {
+                    console.warn('Failed to send WhatsApp to HR:', hrMessageResult.error);
+                    // Not throwing error as the main action already succeeded
+                } else {
+                    console.log('WhatsApp to HR sent successfully!');
+                }
+            }
+
+            // Send WhatsApp message to Employee when HR approves or rejects (final action)
+            const isFinalAction = newStatus === 'Approved' || newStatus === 'Rejected';
+            const employeePhone = request.employee_whatsapp_number;
+            console.log('isFinalAction:', isFinalAction);
+            console.log('employeePhone:', employeePhone);
+
+            if (isFinalAction && employeePhone) {
+                const formatDateTime = (dateString) => {
+                    if (!dateString) return 'N/A';
+                    return new Date(dateString).toLocaleString('en-GB', {
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                    });
+                };
+
+                if (newStatus === 'Approved') {
+                    console.log('Sending APPROVED message to employee...');
+                    const employeeResult = await sendGatePassApprovedToEmployee({
+                        employeePhone: employeePhone,
+                        employeeName: request.employee_name,
+                        leaveType: 'Gate Pass',
+                        fromDate: formatDateTime(request.departure_from_plant),
+                        toDate: formatDateTime(request.arrival_at_plant),
+                        totalDays: 'N/A',
+                        reason: request.place_reason_to_visit || 'No reason specified',
+                    });
+                    if (!employeeResult.success) {
+                        console.warn('Failed to send approved message to employee:', employeeResult.error);
+                    } else {
+                        console.log('Approved message sent to employee successfully!');
+                    }
+                } else if (newStatus === 'Rejected') {
+                    console.log('Sending REJECTED message to employee...');
+                    const employeeResult = await sendGatePassRejectedToEmployee({
+                        employeePhone: employeePhone,
+                        employeeName: request.employee_name,
+                        leaveType: 'Gate Pass',
+                        fromDate: formatDateTime(request.departure_from_plant),
+                        toDate: formatDateTime(request.arrival_at_plant),
+                        totalDays: 'N/A',
+                        hrRemarks: currentRemarks || 'No remarks provided',
+                    });
+                    if (!employeeResult.success) {
+                        console.warn('Failed to send rejected message to employee:', employeeResult.error);
+                    } else {
+                        console.log('Rejected message sent to employee successfully!');
+                    }
+                }
+            } else if (isFinalAction && !employeePhone) {
+                console.warn('Cannot send notification: Employee phone number not available');
+            }
 
             toast.success(`Request ${action === 'approve' ? 'Approved' : 'Rejected'} Successfully`);
 
