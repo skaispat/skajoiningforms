@@ -13,6 +13,7 @@ import {
   Shield,
   ChevronRight,
   Quote,
+  CloudHail,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { sendWhatsappMessageToHr } from "../utils/sendWhatsappMessageToHr";
@@ -36,6 +37,9 @@ const ApprovalForm = () => {
   const [successData, setSuccessData] = useState({ action: "", role: "" });
   const [editableEndDate, setEditableEndDate] = useState("");
 
+  const [hrId, setHrId] = useState(false);
+
+  console.log(hrId,"hr id ")
   // Show popup if params are missing - placed after all hooks
   const missingParams = !approverId || !id;
 
@@ -56,6 +60,11 @@ const ApprovalForm = () => {
 
       if (error) throw error;
       if (!data) throw new Error("Request not found");
+
+            if(data?.hod_id == data?.hr_id){
+        setHrId(true);
+      }
+
 
       // Fetch Approver Details
       // Fetch by emp_id (schema primary key)
@@ -174,8 +183,14 @@ const ApprovalForm = () => {
 
       if (action === "approve") {
         if (isHodAction) {
-          newStatus = "Pending HR";
-          logAction = "Approved";
+          if (hrId) {
+             // Auto-approve if HOD is same as HR
+             newStatus = "Approved";
+             logAction = "Approved (Auto by HOD=HR)";
+          } else {
+             newStatus = "Pending HR";
+             logAction = "Approved";
+          }
         } else if (isHrAction) {
           newStatus = "Approved";
           logAction = "Approved";
@@ -205,9 +220,9 @@ const ApprovalForm = () => {
         }),
         // If HOD is HR and skipping, ensure HR fields are also filled
         ...(isHodAction &&
-          approver.department === "HR" &&
+          hrId &&
           action === "approve" && {
-            hr_remarks: currentRemarks,
+            hr_remarks: currentRemarks, // Copy remarks to HR field too
             hr_id: approver.emp_id,
             hr_name: approver.full_name,
           }),
@@ -238,6 +253,16 @@ const ApprovalForm = () => {
           hr_id: approver.emp_id,
           hr_name: approver.full_name,
         }),
+        // Log HR action if auto-approved
+        ...(isHodAction &&
+          hrId &&
+          action === "approve" && {
+            hr_action: logAction,
+            hr_approval_time: new Date().toISOString(),
+            hr_remarks: currentRemarks,
+            hr_id: approver.emp_id,
+            hr_name: approver.full_name,
+          }),
       };
 
       await supabase
@@ -273,11 +298,12 @@ const ApprovalForm = () => {
 
       // Send WhatsApp message to Employee when HR approves or rejects (final action)
       // Only send when newStatus is "Approved" or when HR rejects (isHrAction && newStatus === "Rejected")
-      const isHrFinalAction =
-        (newStatus === "Approved" && isHrAction) ||
-        (newStatus === "Rejected" && isHrAction);
+      // ALSO send if HOD auto-approved just now.
+      const isFinalAction =
+        newStatus === "Approved" ||
+        (newStatus === "Rejected" && (isHrAction || hrId)); // Reject by HOD=HR is final
 
-      if (isHrFinalAction && request.employee_phone) {
+      if (isFinalAction && request.employee_phone) {
         if (action === "approve") {
           // Template D: HR Approves → Final Message to User
           const approvedResult = await sendApprovedMessageToEmployee({
@@ -423,7 +449,7 @@ const ApprovalForm = () => {
   console.log(isPendingHR, "ispending hr");
 
   // User Logic: Block approverId 1 during HOD phase, allow during HR phase
-  const isActionable = (isPendingHOD && approverId !== "1") || isPendingHR;
+  const isActionable = (isPendingHOD && (approverId !== "1")) || isPendingHR;
 
   let statusMessage = null;
   let statusStyles = {
@@ -700,7 +726,12 @@ const ApprovalForm = () => {
         </div>
 
         {/* Footer Action Area - Compact */}
-        {request && isActionable && (
+        {request &&
+          (isActionable || hrId) &&
+          request.status !== "Approved" &&
+          !request.status.includes("Rejected") && (
+
+          
           <div className="z-30 p-4 bg-white border-t border-gray-100 shadow-xl">
             <div className="flex items-end gap-3">
               <div className="relative flex-1">
@@ -717,7 +748,7 @@ const ApprovalForm = () => {
             <div className="grid grid-cols-2 gap-3 mt-3">
               <button
                 onClick={() => handleAction("reject")}
-                disabled={actionLoading || !isActionable}
+                disabled={actionLoading || (!isActionable && !hrId)}
                 className="flex items-center justify-center gap-2 py-3 text-xs font-bold text-red-600 transition-all bg-white border border-red-100 rounded-xl hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {actionLoading ? (
@@ -731,7 +762,7 @@ const ApprovalForm = () => {
               </button>
               <button
                 onClick={() => handleAction("approve")}
-                disabled={actionLoading || !isActionable}
+                disabled={actionLoading || (!isActionable && !hrId)}
                 className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs text-white bg-[#16A34A] hover:bg-[#15803d] shadow-lg shadow-green-100 hover:shadow-xl hover:shadow-green-200 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {actionLoading ? (
