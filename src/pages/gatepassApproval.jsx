@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { FileText, User, Briefcase, Calendar, Clock, MessageSquare, Check, X, Shield, ChevronRight, Quote, MapPin, Phone, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { sendGatePassMessageToHr, sendGatePassApprovedToEmployee, sendGatePassRejectedToEmployee } from '../utils/sendGatePassWhatsapp';
+import { sendGatePassMessageToHr, sendGatePassApprovedToEmployee, sendGatePassRejectedToEmployee, sendGatePassHodRejectedToEmployee } from '../utils/sendGatePassWhatsapp';
 
 const GatePassApproval = () => {
     const { approverId, id } = useParams();
@@ -314,7 +314,7 @@ const GatePassApproval = () => {
                     } else {
                         console.log('Approved message sent to employee successfully!');
                     }
-                } else if (newStatus === 'Rejected') {
+                } else if (newStatus === 'Rejected' && !isHodAction) {
                     console.log('Sending REJECTED message to employee...');
                     const employeeResult = await sendGatePassRejectedToEmployee({
                         employeePhone: employeePhone,
@@ -333,6 +333,34 @@ const GatePassApproval = () => {
                 }
             } else if (isFinalAction && !employeePhone) {
                 console.warn('Cannot send notification: Employee phone number not available');
+            }
+
+            // Send HOD-specific rejection message when HOD (not HR) rejects
+            // This uses the hod_reject template
+            // Note: isHodAction is already declared above at line 120
+            if (newStatus === 'Rejected' && isHodAction && employeePhone) {
+                console.log('Sending HOD REJECTED message to employee...');
+                const formatDateTime = (dateString) => {
+                    if (!dateString) return 'N/A';
+                    return new Date(dateString).toLocaleString('en-GB', {
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                    });
+                };
+                
+                const hodRejectedResult = await sendGatePassHodRejectedToEmployee({
+                    employeePhone: employeePhone,
+                    employeeName: request.employee_name,
+                    requestType: 'gate pass request',
+                    leaveType: 'Gate Pass',
+                    fromDate: formatDateTime(request.departure_from_plant),
+                    toDate: formatDateTime(request.arrival_at_plant),
+                });
+                if (!hodRejectedResult.success) {
+                    console.warn('Failed to send HOD rejected message to employee:', hodRejectedResult.error);
+                } else {
+                    console.log('HOD Rejected message sent to employee successfully!');
+                }
             }
 
             toast.success(`Request ${action === 'approve' ? 'Approved' : 'Rejected'} Successfully`);

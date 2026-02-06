@@ -89,3 +89,45 @@ export const sendRejectedMessageToEmployee = async ({
     return { success: false, error: error.message };
   }
 };
+
+// Send WhatsApp message to employee when HOD rejects leave (using hod_reject template)
+export const sendHodRejectedMessageToEmployee = async ({
+  employeePhone,
+  employeeName,
+  leaveType,
+  fromDate,
+  toDate,
+}) => {
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_BACKEND_URL}/api/send-whatsappMessage-employee-hod-rejected`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          employeePhone,
+          employeeName,
+          leaveType,
+          fromDate,
+          toDate,
+        }),
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error?.message || "Failed to send HOD rejected message to employee",
+      );
+    }
+
+    console.log("Leave HOD rejected message sent to employee:", data);
+    return { success: true, data };
+  } catch (error) {
+    console.error("Error sending HOD rejected message to employee:", error);
+    return { success: false, error: error.message };
+  }
+};

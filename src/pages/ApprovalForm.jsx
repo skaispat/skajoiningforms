@@ -20,6 +20,7 @@ import { sendWhatsappMessageToHr } from "../utils/sendWhatsappMessageToHr";
 import {
   sendApprovedMessageToEmployee,
   sendRejectedMessageToEmployee,
+  sendHodRejectedMessageToEmployee,
 } from "../utils/sendWhatsappMessageToEmployee";
 
 const ApprovalForm = () => {
@@ -105,10 +106,10 @@ const ApprovalForm = () => {
         .limit(1)
         .maybeSingle();
 
-      // Fetch Employee Phone Number from users table
+      // Fetch Employee Phone Number and Department from users table
       const { data: employeeData } = await supabase
         .from("users")
-        .select("phone_number")
+        .select("phone_number, department")
         .eq("full_name", data.employee_name)
         .maybeSingle();
 
@@ -120,6 +121,8 @@ const ApprovalForm = () => {
         hr_phone: hrData?.phone_number,
         hr_id_val: hrData?.emp_id,
         employee_phone: employeeData?.phone_number,
+        // Use department from leave_management, fallback to employee's department from users table
+        department: data.department || employeeData?.department || "N/A",
       });
       // Initialize editable end date with the original value
       setEditableEndDate(data.leave_date_end || "");
@@ -346,6 +349,30 @@ const ApprovalForm = () => {
               rejectedResult.error,
             );
           }
+        }
+      }
+
+      // Send HOD Rejection message to employee when HOD (not same as HR) rejects
+      // This uses the hod_reject template
+      if (
+        newStatus === "Rejected" &&
+        isHodAction &&
+        !hrId &&
+        request.employee_phone
+      ) {
+        const hodRejectedResult = await sendHodRejectedMessageToEmployee({
+          employeePhone: request.employee_phone,
+          employeeName: request.employee_name,
+          leaveType: request.leave_type,
+          fromDate: request.leave_date_start,
+          toDate: editableEndDate || request.leave_date_end,
+        });
+
+        if (!hodRejectedResult.success) {
+          console.warn(
+            "Failed to send HOD rejected message to employee:",
+            hodRejectedResult.error,
+          );
         }
       }
 
