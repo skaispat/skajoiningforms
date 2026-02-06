@@ -204,12 +204,41 @@ const GatePassApproval = () => {
                 console.log('request.hr_id_val:', request.hr_id_val);
                 console.log('approverId:', approverId);
                 
+                // Debug: Log the database values
+                console.log('=== HR Notification Time Debug ===');
+                console.log('request.departure_from_plant (raw):', request.departure_from_plant);
+                console.log('request.arrival_at_plant (raw):', request.arrival_at_plant);
+                
                 const formatDateTime = (dateString) => {
                     if (!dateString) return 'N/A';
-                    return new Date(dateString).toLocaleString('en-GB', {
+                    console.log('formatDateTime input:', dateString);
+                    const formatted = new Date(dateString).toLocaleString('en-GB', {
                         day: '2-digit', month: '2-digit', year: 'numeric',
                         hour: '2-digit', minute: '2-digit'
                     });
+                    console.log('formatDateTime output:', formatted);
+                    return formatted;
+                };
+
+                // Calculate duration between departure and arrival
+                // Note: DB stores only date (no time), so we check if dates are same
+                const calculateDuration = (fromDate, toDate) => {
+                    if (!fromDate) return 'N/A';
+                    if (!toDate) return 'Same'; // If no arrival time specified, assume same day
+                    const from = new Date(fromDate);
+                    const to = new Date(toDate);
+                    
+                    // Check if the dates are the same (ignoring time - for date-only DB values)
+                    const fromDateStr = fromDate.toString().split('T')[0];
+                    const toDateStr = toDate.toString().split('T')[0];
+                    if (fromDateStr === toDateStr) return 'Same';
+                    
+                    // Calculate difference in days for multi-day gate passes
+                    const diffMs = to - from;
+                    if (diffMs < 0) return 'N/A';
+                    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                    if (diffDays === 1) return '1';
+                    return `${diffDays}`;
                 };
 
                 const hrMessageResult = await sendGatePassMessageToHr({
@@ -221,7 +250,7 @@ const GatePassApproval = () => {
                     leaveType: 'Gate Pass',
                     fromDate: formatDateTime(request.departure_from_plant),
                     toDate: formatDateTime(request.arrival_at_plant),
-                    totalDays: 'N/A',
+                    totalDays: calculateDuration(request.departure_from_plant, request.arrival_at_plant),
                     reason: request.place_reason_to_visit || 'No reason specified',
                 });
 
@@ -248,6 +277,27 @@ const GatePassApproval = () => {
                     });
                 };
 
+                // Calculate duration between departure and arrival
+                // Note: DB stores only date (no time), so we check if dates are same
+                const calculateDuration = (fromDate, toDate) => {
+                    if (!fromDate) return 'N/A';
+                    if (!toDate) return 'Same'; // If no arrival time specified, assume same day
+                    const from = new Date(fromDate);
+                    const to = new Date(toDate);
+                    
+                    // Check if the dates are the same (ignoring time - for date-only DB values)
+                    const fromDateStr = fromDate.toString().split('T')[0];
+                    const toDateStr = toDate.toString().split('T')[0];
+                    if (fromDateStr === toDateStr) return 'Same';
+                    
+                    // Calculate difference in days for multi-day gate passes
+                    const diffMs = to - from;
+                    if (diffMs < 0) return 'N/A';
+                    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                    if (diffDays === 1) return '1';
+                    return `${diffDays}`;
+                };
+
                 if (newStatus === 'Approved') {
                     console.log('Sending APPROVED message to employee...');
                     const employeeResult = await sendGatePassApprovedToEmployee({
@@ -256,7 +306,7 @@ const GatePassApproval = () => {
                         leaveType: 'Gate Pass',
                         fromDate: formatDateTime(request.departure_from_plant),
                         toDate: formatDateTime(request.arrival_at_plant),
-                        totalDays: 'N/A',
+                        totalDays: calculateDuration(request.departure_from_plant, request.arrival_at_plant),
                         reason: request.place_reason_to_visit || 'No reason specified',
                     });
                     if (!employeeResult.success) {
@@ -272,7 +322,7 @@ const GatePassApproval = () => {
                         leaveType: 'Gate Pass',
                         fromDate: formatDateTime(request.departure_from_plant),
                         toDate: formatDateTime(request.arrival_at_plant),
-                        totalDays: 'N/A',
+                        totalDays: calculateDuration(request.departure_from_plant, request.arrival_at_plant),
                         hrRemarks: currentRemarks || 'No remarks provided',
                     });
                     if (!employeeResult.success) {
