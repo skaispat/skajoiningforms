@@ -98,9 +98,8 @@ const GatePassApproval = () => {
 
     const formatDate = (dateString) => {
         if (!dateString) return '-';
-        return new Date(dateString).toLocaleString('en-GB', {
-            day: '2-digit', month: '2-digit', year: 'numeric',
-            hour: '2-digit', minute: '2-digit'
+        return new Date(dateString).toLocaleDateString('en-GB', {
+            day: '2-digit', month: '2-digit', year: 'numeric'
         });
     };
 
@@ -212,9 +211,8 @@ const GatePassApproval = () => {
                 const formatDateTime = (dateString) => {
                     if (!dateString) return 'N/A';
                     console.log('formatDateTime input:', dateString);
-                    const formatted = new Date(dateString).toLocaleString('en-GB', {
-                        day: '2-digit', month: '2-digit', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit'
+                    const formatted = new Date(dateString).toLocaleDateString('en-GB', {
+                        day: '2-digit', month: '2-digit', year: 'numeric'
                     });
                     console.log('formatDateTime output:', formatted);
                     return formatted;
@@ -271,9 +269,8 @@ const GatePassApproval = () => {
             if (isFinalAction && employeePhone) {
                 const formatDateTime = (dateString) => {
                     if (!dateString) return 'N/A';
-                    return new Date(dateString).toLocaleString('en-GB', {
-                        day: '2-digit', month: '2-digit', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit'
+                    return new Date(dateString).toLocaleDateString('en-GB', {
+                        day: '2-digit', month: '2-digit', year: 'numeric'
                     });
                 };
 
@@ -342,9 +339,8 @@ const GatePassApproval = () => {
                 console.log('Sending HOD REJECTED message to employee...');
                 const formatDateTime = (dateString) => {
                     if (!dateString) return 'N/A';
-                    return new Date(dateString).toLocaleString('en-GB', {
-                        day: '2-digit', month: '2-digit', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit'
+                    return new Date(dateString).toLocaleDateString('en-GB', {
+                        day: '2-digit', month: '2-digit', year: 'numeric'
                     });
                 };
                 
