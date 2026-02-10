@@ -27,7 +27,7 @@ const ApprovalForm = () => {
   const { approverId, id } = useParams();
   const [request, setRequest] = useState(null);
 
-  console.log(request, "request and i have to search the hr phone number");
+
 
   const [approver, setApprover] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -40,7 +40,7 @@ const ApprovalForm = () => {
 
   const [hrId, setHrId] = useState(false);
 
-  console.log(hrId,"hr id ")
+
   // Show popup if params are missing - placed after all hooks
   const missingParams = !approverId || !id;
 
@@ -274,7 +274,92 @@ const ApprovalForm = () => {
         .eq("request_id", id)
         .eq("request_type", "Leave");
 
-      console.log(newStatus, "new status");
+      // Update yearly_quota when leave is fully approved
+      if (newStatus === "Approved") {
+        
+        const leaveDays = calculateDays(
+          request.leave_date_start,
+          editableEndDate || request.leave_date_end
+        );
+        const currentYear = new Date().getFullYear();
+        const employeeId = request.emp_id;
+        const leaveType = request.leave_type;
+
+
+
+        // Determine which leave type column to update
+        let quotaColumn = "";
+
+        if (leaveType === "Casual Leave") {
+          quotaColumn = "casual_leave_used";
+        } else if (leaveType === "Earned Leave") {
+          quotaColumn = "earned_leave_used";
+        } else if (leaveType === "UnPaid Leave") {
+          quotaColumn = "unpaid_leave_used";
+        }
+
+
+
+        if (quotaColumn) {
+          try {
+            // Check if yearly_quota record exists
+            const { data: existingQuota, error: quotaCheckError } = await supabase
+              .from("yearly_quota")
+              .select("*")
+              .eq("emp_id", employeeId)
+              .eq("year", currentYear)
+              .maybeSingle();
+
+
+
+            if (quotaCheckError) {
+              console.error("Error checking yearly quota:", quotaCheckError);
+            } else if (existingQuota) {
+              // Update existing record
+              const currentUsed = existingQuota[quotaColumn] || 0;
+              const newUsed = currentUsed + leaveDays;
+              
+              const { error: quotaUpdateError } = await supabase
+                .from("yearly_quota")
+                .update({
+                  [quotaColumn]: newUsed
+                })
+                .eq("id", existingQuota.id);
+
+              if (quotaUpdateError) {
+                // Error updating yearly quota
+              } else {
+                // Success
+              }
+            } else {
+              // Create new record for this year
+              const { error: quotaInsertError } = await supabase
+                .from("yearly_quota")
+                .insert({
+                  emp_id: employeeId,
+                  year: currentYear,
+                  casual_leave_used: leaveType === "Casual Leave" ? leaveDays : 0,
+                  earned_leave_used: leaveType === "Earned Leave" ? leaveDays : 0,
+                  unpaid_leave_used: leaveType === "UnPaid Leave" ? leaveDays : 0,
+                  casual_leave_limit: 12,
+                  earned_leave_limit: 24,
+                });
+
+              if (quotaInsertError) {
+                console.error("Error inserting yearly quota:", quotaInsertError);
+              } else {
+                // Success
+              }
+            }
+          } catch (quotaError) {
+            console.error("Quota update error:", quotaError);
+          }
+        }
+        
+
+      }
+
+
       // Send WhatsApp message to HR when HOD approves (status becomes "Pending HR")
       if (newStatus === "Pending HR") {
         const hrMessageResult = await sendWhatsappMessageToHr({
@@ -472,8 +557,7 @@ const ApprovalForm = () => {
     request.status === "Pending" || request.status === "Pending HOD";
   const isPendingHR = request.status === "Pending HR";
 
-  console.log(isPendingHOD, "isPendingHOD");
-  console.log(isPendingHR, "ispending hr");
+
 
   // User Logic: Block approverId 1 during HOD phase, allow during HR phase
   const isActionable = (isPendingHOD && (approverId !== "1")) || isPendingHR;
