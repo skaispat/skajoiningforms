@@ -39,6 +39,12 @@ const ApprovalForm = () => {
   const [editableEndDate, setEditableEndDate] = useState("");
 
   const [hrId, setHrId] = useState(false);
+  const [editableLeaveType, setEditableLeaveType] = useState("");
+  const [leaveSplits, setLeaveSplits] = useState({
+    casual: 0,
+    earned: 0,
+    unpaid: 0,
+  });
 
 
   // Show popup if params are missing - placed after all hooks
@@ -62,7 +68,7 @@ const ApprovalForm = () => {
       if (error) throw error;
       if (!data) throw new Error("Request not found");
 
-            if(data?.hod_id == data?.hr_id){
+      if (data?.hod_id == data?.hr_id) {
         setHrId(true);
       }
 
@@ -126,6 +132,12 @@ const ApprovalForm = () => {
       });
       // Initialize editable end date with the original value
       setEditableEndDate(data.leave_date_end || "");
+      setEditableLeaveType(data.leave_type || "");
+      setLeaveSplits({
+        casual: data.casual || 0,
+        earned: data.earned || 0,
+        unpaid: data.unpaid || 0,
+      });
 
       if (approverData) {
         setApprover(approverData);
@@ -187,14 +199,24 @@ const ApprovalForm = () => {
       if (action === "approve") {
         if (isHodAction) {
           if (hrId) {
-             // Auto-approve if HOD is same as HR
-             newStatus = "Approved";
-             logAction = "Approved (Auto by HOD=HR)";
+            // Auto-approve if HOD is same as HR
+            newStatus = "Approved";
+            logAction = "Approved (Auto by HOD=HR)";
           } else {
-             newStatus = "Pending HR";
-             logAction = "Approved";
+            newStatus = "Pending HR";
+            logAction = "Approved";
           }
         } else if (isHrAction) {
+          // Validation for HR Approval Splitting
+          const totalSplits = leaveSplits.casual + leaveSplits.earned + leaveSplits.unpaid;
+          const totalDays = calculateDays(request.leave_date_start, editableEndDate || request.leave_date_end);
+
+          if (totalSplits !== totalDays) {
+            toast.error(`Total breakdown (${totalSplits}) must equal total days (${totalDays})`);
+            setActionLoading(false);
+            return;
+          }
+
           newStatus = "Approved";
           logAction = "Approved";
         }
@@ -209,8 +231,8 @@ const ApprovalForm = () => {
         // Include updated end date if changed
         ...(editableEndDate &&
           editableEndDate !== request.leave_date_end && {
-            leave_date_end: editableEndDate,
-          }),
+          leave_date_end: editableEndDate,
+        }),
         ...(isHodAction && {
           hod_remarks: currentRemarks,
           hod_id: approver.emp_id,
@@ -220,15 +242,23 @@ const ApprovalForm = () => {
           hr_remarks: currentRemarks,
           hr_id: approver.emp_id,
           hr_name: approver.full_name,
+          leave_type: editableLeaveType,
+          casual: leaveSplits.casual,
+          earned: leaveSplits.earned,
+          unpaid: leaveSplits.unpaid,
         }),
         // If HOD is HR and skipping, ensure HR fields are also filled
         ...(isHodAction &&
           hrId &&
           action === "approve" && {
-            hr_remarks: currentRemarks, // Copy remarks to HR field too
-            hr_id: approver.emp_id,
-            hr_name: approver.full_name,
-          }),
+          hr_remarks: currentRemarks, // Copy remarks to HR field too
+          hr_id: approver.emp_id,
+          hr_name: approver.full_name,
+          leave_type: editableLeaveType,
+          casual: leaveSplits.casual,
+          earned: leaveSplits.earned,
+          unpaid: leaveSplits.unpaid,
+        }),
       };
 
       const { error: updateError } = await supabase
@@ -260,12 +290,12 @@ const ApprovalForm = () => {
         ...(isHodAction &&
           hrId &&
           action === "approve" && {
-            hr_action: logAction,
-            hr_approval_time: new Date().toISOString(),
-            hr_remarks: currentRemarks,
-            hr_id: approver.emp_id,
-            hr_name: approver.full_name,
-          }),
+          hr_action: logAction,
+          hr_approval_time: new Date().toISOString(),
+          hr_remarks: currentRemarks,
+          hr_id: approver.emp_id,
+          hr_name: approver.full_name,
+        }),
       };
 
       await supabase
@@ -276,86 +306,61 @@ const ApprovalForm = () => {
 
       // Update yearly_quota when leave is fully approved
       if (newStatus === "Approved") {
-        
+
         const leaveDays = calculateDays(
           request.leave_date_start,
           editableEndDate || request.leave_date_end
         );
         const currentYear = new Date().getFullYear();
         const employeeId = request.emp_id;
-        const leaveType = request.leave_type;
 
+        try {
+          // Check if yearly_quota record exists
+          const { data: existingQuota, error: quotaCheckError } = await supabase
+            .from("yearly_quota")
+            .select("*")
+            .eq("emp_id", employeeId)
+            .eq("year", currentYear)
+            .maybeSingle();
 
-
-        // Determine which leave type column to update
-        let quotaColumn = "";
-
-        if (leaveType === "Casual Leave") {
-          quotaColumn = "casual_leave_used";
-        } else if (leaveType === "Earned Leave") {
-          quotaColumn = "earned_leave_used";
-        } else if (leaveType === "UnPaid Leave") {
-          quotaColumn = "unpaid_leave_used";
-        }
-
-
-
-        if (quotaColumn) {
-          try {
-            // Check if yearly_quota record exists
-            const { data: existingQuota, error: quotaCheckError } = await supabase
+          if (quotaCheckError) {
+            console.error("Error checking yearly quota:", quotaCheckError);
+          } else if (existingQuota) {
+            // Update existing record using split counts
+            const { error: quotaUpdateError } = await supabase
               .from("yearly_quota")
-              .select("*")
-              .eq("emp_id", employeeId)
-              .eq("year", currentYear)
-              .maybeSingle();
+              .update({
+                casual_leave_used: (existingQuota.casual_leave_used || 0) + leaveSplits.casual,
+                earned_leave_used: (existingQuota.earned_leave_used || 0) + leaveSplits.earned,
+                unpaid_leave_used: (existingQuota.unpaid_leave_used || 0) + leaveSplits.unpaid,
+              })
+              .eq("id", existingQuota.id);
 
-
-
-            if (quotaCheckError) {
-              console.error("Error checking yearly quota:", quotaCheckError);
-            } else if (existingQuota) {
-              // Update existing record
-              const currentUsed = existingQuota[quotaColumn] || 0;
-              const newUsed = currentUsed + leaveDays;
-              
-              const { error: quotaUpdateError } = await supabase
-                .from("yearly_quota")
-                .update({
-                  [quotaColumn]: newUsed
-                })
-                .eq("id", existingQuota.id);
-
-              if (quotaUpdateError) {
-                // Error updating yearly quota
-              } else {
-                // Success
-              }
-            } else {
-              // Create new record for this year
-              const { error: quotaInsertError } = await supabase
-                .from("yearly_quota")
-                .insert({
-                  emp_id: employeeId,
-                  year: currentYear,
-                  casual_leave_used: leaveType === "Casual Leave" ? leaveDays : 0,
-                  earned_leave_used: leaveType === "Earned Leave" ? leaveDays : 0,
-                  unpaid_leave_used: leaveType === "UnPaid Leave" ? leaveDays : 0,
-                  casual_leave_limit: 12,
-                  earned_leave_limit: 24,
-                });
-
-              if (quotaInsertError) {
-                console.error("Error inserting yearly quota:", quotaInsertError);
-              } else {
-                // Success
-              }
+            if (quotaUpdateError) {
+              console.error("Error updating yearly quota:", quotaUpdateError);
             }
-          } catch (quotaError) {
-            console.error("Quota update error:", quotaError);
+          } else {
+            // Create new record for this year
+            const { error: quotaInsertError } = await supabase
+              .from("yearly_quota")
+              .insert({
+                emp_id: employeeId,
+                year: currentYear,
+                casual_leave_used: leaveSplits.casual,
+                earned_leave_used: leaveSplits.earned,
+                unpaid_leave_used: leaveSplits.unpaid,
+                casual_leave_limit: 12,
+                earned_leave_limit: 24,
+              });
+
+            if (quotaInsertError) {
+              console.error("Error inserting yearly quota:", quotaInsertError);
+            }
           }
+        } catch (quotaError) {
+          console.error("Quota update error:", quotaError);
         }
-        
+
 
       }
 
@@ -397,7 +402,7 @@ const ApprovalForm = () => {
           const approvedResult = await sendApprovedMessageToEmployee({
             employeePhone: request.employee_phone,
             employeeName: request.employee_name,
-            leaveType: request.leave_type,
+            leaveType: editableLeaveType || request.leave_type,
             fromDate: request.leave_date_start,
             toDate: editableEndDate || request.leave_date_end,
             totalDays: calculateDays(
@@ -418,7 +423,7 @@ const ApprovalForm = () => {
           const rejectedResult = await sendRejectedMessageToEmployee({
             employeePhone: request.employee_phone,
             employeeName: request.employee_name,
-            leaveType: request.leave_type,
+            leaveType: editableLeaveType || request.leave_type,
             fromDate: request.leave_date_start,
             toDate: editableEndDate || request.leave_date_end,
             totalDays: calculateDays(
@@ -448,7 +453,7 @@ const ApprovalForm = () => {
         const hodRejectedResult = await sendHodRejectedMessageToEmployee({
           employeePhone: request.employee_phone,
           employeeName: request.employee_name,
-          leaveType: request.leave_type,
+          leaveType: editableLeaveType || request.leave_type,
           fromDate: request.leave_date_start,
           toDate: editableEndDate || request.leave_date_end,
         });
@@ -606,11 +611,10 @@ const ApprovalForm = () => {
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-sans bg-gray-100/90 backdrop-blur-xl">
         <div className="w-full max-w-sm p-8 text-center bg-white shadow-2xl rounded-3xl animate-fade-in-up ring-1 ring-black/5">
           <div
-            className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl ${
-              successData.action === "Approved"
-                ? "bg-gradient-to-br from-emerald-400 to-emerald-600 text-white"
-                : "bg-gradient-to-br from-red-400 to-red-600 text-white"
-            }`}
+            className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl ${successData.action === "Approved"
+              ? "bg-gradient-to-br from-emerald-400 to-emerald-600 text-white"
+              : "bg-gradient-to-br from-red-400 to-red-600 text-white"
+              }`}
           >
             {successData.action === "Approved" ? (
               <Check className="w-10 h-10" />
@@ -653,13 +657,12 @@ const ApprovalForm = () => {
             </div>
           </div>
           <div
-            className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${
-              request.status === "Approved"
-                ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
-                : request.status.includes("Rejected")
-                  ? "bg-red-50 text-red-600 border border-red-100"
-                  : "bg-amber-50 text-amber-600 border border-amber-100"
-            }`}
+            className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${request.status === "Approved"
+              ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+              : request.status.includes("Rejected")
+                ? "bg-red-50 text-red-600 border border-red-100"
+                : "bg-amber-50 text-amber-600 border border-amber-100"
+              }`}
           >
             {request.status.includes("Rejected") ? (
               <X className="w-3 h-3" />
@@ -745,10 +748,21 @@ const ApprovalForm = () => {
                     Type
                   </p>
                   <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                    <p className="text-xs font-bold truncate text-slate-900">
-                      {request.leave_type}
-                    </p>
+                    {(isPendingHR) ? (
+                      <select
+                        value={editableLeaveType}
+                        onChange={(e) => setEditableLeaveType(e.target.value)}
+                        className="w-full px-2 py-1 text-xs font-bold border border-gray-200 rounded-lg text-slate-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      >
+                        <option value="Casual Leave">Casual Leave</option>
+                        <option value="Earned Leave">Earned Leave</option>
+                        <option value="UnPaid Leave">UnPaid Leave</option>
+                      </select>
+                    ) : (
+                      <p className="text-xs font-bold truncate text-slate-900">
+                        {request.leave_type}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="px-3 py-2 bg-white border rounded-xl border-gray-200/50">
@@ -778,14 +792,17 @@ const ApprovalForm = () => {
               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
                 End
               </p>
-              {isActionable ? (
-                <input
-                  type="date"
-                  value={editableEndDate}
-                  onChange={(e) => setEditableEndDate(e.target.value)}
-                  min={request.leave_date_start}
-                  className="px-2 py-1 text-sm font-bold border border-gray-200 rounded-lg text-slate-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                />
+              {isPendingHR ? (
+                <div className="flex flex-col gap-2">
+                  <input
+                    type="date"
+                    value={editableEndDate}
+                    onChange={(e) => setEditableEndDate(e.target.value)}
+                    min={request.leave_date_start}
+                    className="px-2 py-1 text-sm font-bold border border-gray-200 rounded-lg text-slate-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                  <p className="text-[10px] text-slate-400 font-medium">Original: {request.endDate}</p>
+                </div>
               ) : (
                 <p className="text-sm font-bold text-slate-900">
                   {request.endDate}
@@ -793,6 +810,62 @@ const ApprovalForm = () => {
               )}
             </div>
           </div>
+
+          {/* Leave Breakdown for HR */}
+          {isPendingHR && (
+            <div className="p-4 bg-white border border-indigo-100 shadow-sm rounded-2xl">
+              <h5 className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Shield className="w-3.5 h-3.5" />
+                Leave Breakdown (HR Only)
+              </h5>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Casual</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={leaveSplits.casual}
+                    onChange={(e) => setLeaveSplits(prev => ({ ...prev, casual: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 text-xs font-bold border border-gray-100 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Earned</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={leaveSplits.earned}
+                    onChange={(e) => setLeaveSplits(prev => ({ ...prev, earned: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 text-xs font-bold border border-gray-100 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Unpaid</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={leaveSplits.unpaid}
+                    onChange={(e) => setLeaveSplits(prev => ({ ...prev, unpaid: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 text-xs font-bold border border-gray-100 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex items-center justify-between">
+                <p className={`text-[10px] font-bold ${(leaveSplits.casual + leaveSplits.earned + leaveSplits.unpaid) === calculateDays(request.leave_date_start, editableEndDate || request.leave_date_end)
+                  ? "text-emerald-600"
+                  : "text-red-500"
+                  }`}>
+                  Total: {leaveSplits.casual + leaveSplits.earned + leaveSplits.unpaid} / {calculateDays(request.leave_date_start, editableEndDate || request.leave_date_end)} Days
+                </p>
+                {(leaveSplits.casual + leaveSplits.earned + leaveSplits.unpaid) !== calculateDays(request.leave_date_start, editableEndDate || request.leave_date_end) && (
+                  <p className="text-[10px] font-medium text-red-400 animate-pulse">Counts must match total days</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Remarks Section - Compact */}
           <div className="space-y-3">
@@ -842,52 +915,52 @@ const ApprovalForm = () => {
           request.status !== "Approved" &&
           !request.status.includes("Rejected") && (
 
-          
-          <div className="z-30 p-4 bg-white border-t border-gray-100 shadow-xl">
-            <div className="flex items-end gap-3">
-              <div className="relative flex-1">
-                <textarea
-                  value={currentRemarks}
-                  onChange={(e) => setCurrentRemarks(e.target.value)}
-                  placeholder="Add remarks..."
-                  className="w-full h-12 px-4 py-3 text-xs font-medium transition-all border border-gray-200 resize-none pr-9 bg-gray-50 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 placeholder:text-gray-400"
-                />
-                <MessageSquare className="absolute right-3 top-3.5 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+
+            <div className="z-30 p-4 bg-white border-t border-gray-100 shadow-xl">
+              <div className="flex items-end gap-3">
+                <div className="relative flex-1">
+                  <textarea
+                    value={currentRemarks}
+                    onChange={(e) => setCurrentRemarks(e.target.value)}
+                    placeholder="Add remarks..."
+                    className="w-full h-12 px-4 py-3 text-xs font-medium transition-all border border-gray-200 resize-none pr-9 bg-gray-50 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 placeholder:text-gray-400"
+                  />
+                  <MessageSquare className="absolute right-3 top-3.5 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <button
+                  onClick={() => handleAction("reject")}
+                  disabled={actionLoading || (!isActionable && !hrId)}
+                  className="flex items-center justify-center gap-2 py-3 text-xs font-bold text-red-600 transition-all bg-white border border-red-100 rounded-xl hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {actionLoading ? (
+                    <div className="w-3 h-3 border-2 border-red-600 rounded-full border-t-transparent animate-spin" />
+                  ) : (
+                    <>
+                      <X className="w-4 h-4" />
+                      Reject
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => handleAction("approve")}
+                  disabled={actionLoading || (!isActionable && !hrId)}
+                  className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs text-white bg-[#16A34A] hover:bg-[#15803d] shadow-lg shadow-green-100 hover:shadow-xl hover:shadow-green-200 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {actionLoading ? (
+                    <div className="w-3 h-3 border-2 border-white rounded-full border-t-transparent animate-spin" />
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Approve Request
+                    </>
+                  )}
+                </button>
               </div>
             </div>
-
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <button
-                onClick={() => handleAction("reject")}
-                disabled={actionLoading || (!isActionable && !hrId)}
-                className="flex items-center justify-center gap-2 py-3 text-xs font-bold text-red-600 transition-all bg-white border border-red-100 rounded-xl hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {actionLoading ? (
-                  <div className="w-3 h-3 border-2 border-red-600 rounded-full border-t-transparent animate-spin" />
-                ) : (
-                  <>
-                    <X className="w-4 h-4" />
-                    Reject
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => handleAction("approve")}
-                disabled={actionLoading || (!isActionable && !hrId)}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs text-white bg-[#16A34A] hover:bg-[#15803d] shadow-lg shadow-green-100 hover:shadow-xl hover:shadow-green-200 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {actionLoading ? (
-                  <div className="w-3 h-3 border-2 border-white rounded-full border-t-transparent animate-spin" />
-                ) : (
-                  <>
-                    <Check className="w-4 h-4" />
-                    Approve Request
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        )}
+          )}
       </div>
     </div>
   );
