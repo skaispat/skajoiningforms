@@ -38,7 +38,7 @@ const ApprovalForm = () => {
   const [successData, setSuccessData] = useState({ action: "", role: "" });
   const [editableEndDate, setEditableEndDate] = useState("");
 
-  const [hrId, setHrId] = useState(false);
+  const [isHodSameAsHr, setIsHodSameAsHr] = useState(false);
   const [editableLeaveType, setEditableLeaveType] = useState("");
   const [leaveSplits, setLeaveSplits] = useState({
     casual: 0,
@@ -69,7 +69,7 @@ const ApprovalForm = () => {
       if (!data) throw new Error("Request not found");
 
       if (data?.hod_id == data?.hr_id) {
-        setHrId(true);
+        setIsHodSameAsHr(true);
       }
 
 
@@ -197,8 +197,26 @@ const ApprovalForm = () => {
       }
 
       if (action === "approve") {
+        const canEditLeaves = isHrAction || (isHodAction && isHodSameAsHr);
+        if (canEditLeaves) {
+          const totalSplits =
+            leaveSplits.casual + leaveSplits.earned + leaveSplits.unpaid;
+          const totalDays = calculateDays(
+            request.leave_date_start,
+            editableEndDate || request.leave_date_end,
+          );
+
+          if (totalSplits !== totalDays) {
+            toast.error(
+              `Total breakdown (${totalSplits}) must equal total days (${totalDays})`,
+            );
+            setActionLoading(false);
+            return;
+          }
+        }
+
         if (isHodAction) {
-          if (hrId) {
+          if (isHodSameAsHr) {
             // Auto-approve if HOD is same as HR
             newStatus = "Approved";
             logAction = "Approved (Auto by HOD=HR)";
@@ -207,16 +225,6 @@ const ApprovalForm = () => {
             logAction = "Approved";
           }
         } else if (isHrAction) {
-          // Validation for HR Approval Splitting
-          const totalSplits = leaveSplits.casual + leaveSplits.earned + leaveSplits.unpaid;
-          const totalDays = calculateDays(request.leave_date_start, editableEndDate || request.leave_date_end);
-
-          if (totalSplits !== totalDays) {
-            toast.error(`Total breakdown (${totalSplits}) must equal total days (${totalDays})`);
-            setActionLoading(false);
-            return;
-          }
-
           newStatus = "Approved";
           logAction = "Approved";
         }
@@ -249,7 +257,7 @@ const ApprovalForm = () => {
         }),
         // If HOD is HR and skipping, ensure HR fields are also filled
         ...(isHodAction &&
-          hrId &&
+          isHodSameAsHr &&
           action === "approve" && {
           hr_remarks: currentRemarks, // Copy remarks to HR field too
           hr_id: approver.emp_id,
@@ -288,7 +296,7 @@ const ApprovalForm = () => {
         }),
         // Log HR action if auto-approved
         ...(isHodAction &&
-          hrId &&
+          isHodSameAsHr &&
           action === "approve" && {
           hr_action: logAction,
           hr_approval_time: new Date().toISOString(),
@@ -394,7 +402,7 @@ const ApprovalForm = () => {
       // ALSO send if HOD auto-approved just now.
       const isFinalAction =
         newStatus === "Approved" ||
-        (newStatus === "Rejected" && (isHrAction || hrId)); // Reject by HOD=HR is final
+        (newStatus === "Rejected" && (isHrAction || isHodSameAsHr)); // Reject by HOD=HR is final
 
       if (isFinalAction && request.employee_phone) {
         if (action === "approve") {
@@ -447,7 +455,7 @@ const ApprovalForm = () => {
       if (
         newStatus === "Rejected" &&
         isHodAction &&
-        !hrId &&
+        !isHodSameAsHr &&
         request.employee_phone
       ) {
         const hodRejectedResult = await sendHodRejectedMessageToEmployee({
@@ -561,8 +569,7 @@ const ApprovalForm = () => {
   const isPendingHOD =
     request.status === "Pending" || request.status === "Pending HOD";
   const isPendingHR = request.status === "Pending HR";
-
-
+  const showLeaveEditor = isPendingHR || (isPendingHOD && isHodSameAsHr);
 
   // User Logic: Block approverId 1 during HOD phase, allow during HR phase
   const isActionable = (isPendingHOD && (approverId !== "1")) || isPendingHR;
@@ -748,7 +755,7 @@ const ApprovalForm = () => {
                     Type
                   </p>
                   <div className="flex items-center gap-1.5">
-                    {(isPendingHR) ? (
+                    {showLeaveEditor ? (
                       <select
                         value={editableLeaveType}
                         onChange={(e) => setEditableLeaveType(e.target.value)}
@@ -792,7 +799,7 @@ const ApprovalForm = () => {
               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
                 End
               </p>
-              {isPendingHR ? (
+              {showLeaveEditor ? (
                 <div className="flex flex-col gap-2">
                   <input
                     type="date"
@@ -812,7 +819,7 @@ const ApprovalForm = () => {
           </div>
 
           {/* Leave Breakdown for HR */}
-          {isPendingHR && (
+          {showLeaveEditor && (
             <div className="p-4 bg-white border border-indigo-100 shadow-sm rounded-2xl">
               <h5 className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Shield className="w-3.5 h-3.5" />
@@ -911,7 +918,7 @@ const ApprovalForm = () => {
 
         {/* Footer Action Area - Compact */}
         {request &&
-          (isActionable || hrId) &&
+          (isActionable || isHodSameAsHr) &&
           request.status !== "Approved" &&
           !request.status.includes("Rejected") && (
 
@@ -932,7 +939,7 @@ const ApprovalForm = () => {
               <div className="grid grid-cols-2 gap-3 mt-3">
                 <button
                   onClick={() => handleAction("reject")}
-                  disabled={actionLoading || (!isActionable && !hrId)}
+                  disabled={actionLoading || (!isActionable && !isHodSameAsHr)}
                   className="flex items-center justify-center gap-2 py-3 text-xs font-bold text-red-600 transition-all bg-white border border-red-100 rounded-xl hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {actionLoading ? (
@@ -946,7 +953,7 @@ const ApprovalForm = () => {
                 </button>
                 <button
                   onClick={() => handleAction("approve")}
-                  disabled={actionLoading || (!isActionable && !hrId)}
+                  disabled={actionLoading || (!isActionable && !isHodSameAsHr)}
                   className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs text-white bg-[#16A34A] hover:bg-[#15803d] shadow-lg shadow-green-100 hover:shadow-xl hover:shadow-green-200 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {actionLoading ? (
