@@ -46,6 +46,9 @@ const ApprovalForm = () => {
     unpaid: 0,
   });
 
+  const [monthUsage, setMonthUsage] = useState({ earned: 0, casual: 0, unpaid: 0 });
+  const [carryForward, setCarryForward] = useState(0);
+
 
   // Show popup if params are missing - placed after all hooks
   const missingParams = !approverId || !id;
@@ -138,6 +141,39 @@ const ApprovalForm = () => {
         earned: data.earned || 0,
         unpaid: data.unpaid || 0,
       });
+
+      // Fetch Monthly Usage
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+
+      const { data: monthLeaves } = await supabase
+        .from("leave_management")
+        .select("earned, casual, unpaid")
+        .eq("emp_id", data.emp_id)
+        .eq("status", "Approved")
+        .gte("leave_date_start", startOfMonth)
+        .lte("leave_date_start", endOfMonth);
+
+      const usageSummary = (monthLeaves || []).reduce(
+        (acc, curr) => ({
+          earned: acc.earned + (curr.earned || 0),
+          casual: acc.casual + (curr.casual || 0),
+          unpaid: acc.unpaid + (curr.unpaid || 0),
+        }),
+        { earned: 0, casual: 0, unpaid: 0 }
+      );
+      setMonthUsage(usageSummary);
+
+      // Fetch Carry Forward EL
+      const { data: quotaData } = await supabase
+        .from("yearly_quota")
+        .select("carried_forward_el")
+        .eq("emp_id", data.emp_id)
+        .eq("year", now.getFullYear())
+        .maybeSingle();
+
+      setCarryForward(quotaData?.carried_forward_el || 0);
 
       if (approverData) {
         setApprover(approverData);
@@ -535,7 +571,7 @@ const ApprovalForm = () => {
               </li>
             </ul>
           </div>
-          <p className="text-[11px] text-slate-400 leading-relaxed">
+          <p className="text-[11px] text-slate-600 leading-relaxed">
             The URL should follow the format:
             <br />
             <code className="inline-block px-2 py-1 mt-1 bg-gray-100 rounded text-slate-600">
@@ -637,7 +673,7 @@ const ApprovalForm = () => {
               ? `This request has been processed by the HR Department.`
               : `This request has been processed by the Head of Department.`}
           </p>
-          <p className="text-sm font-medium text-slate-400">
+          <p className="text-sm font-medium text-slate-600">
             You can close this window now
           </p>
         </div>
@@ -658,7 +694,7 @@ const ApprovalForm = () => {
               <h2 className="text-sm font-bold leading-tight text-slate-900">
                 Leave Request
               </h2>
-              <p className="text-[11px] font-medium text-slate-400 mt-0.5">
+              <p className="text-[11px] font-medium text-slate-600 mt-0.5">
                 ID: #{id?.slice(0, 8)}
               </p>
             </div>
@@ -743,7 +779,7 @@ const ApprovalForm = () => {
                   <h4 className="text-sm font-bold leading-tight text-slate-900">
                     {request.employee_name}
                   </h4>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
                     Applicant
                   </p>
                 </div>
@@ -751,7 +787,7 @@ const ApprovalForm = () => {
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="px-3 py-2 bg-white border rounded-xl border-gray-200/50">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+                  <p className="text-[9px] font-bold text-slate-600 uppercase tracking-wider mb-0.5">
                     Type
                   </p>
                   <div className="flex items-center gap-1.5">
@@ -773,7 +809,7 @@ const ApprovalForm = () => {
                   </div>
                 </div>
                 <div className="px-3 py-2 bg-white border rounded-xl border-gray-200/50">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+                  <p className="text-[9px] font-bold text-slate-600 uppercase tracking-wider mb-0.5">
                     Days
                   </p>
                   <p className="text-xs font-bold text-slate-900">{dayCount}</p>
@@ -782,10 +818,44 @@ const ApprovalForm = () => {
             </div>
           </div>
 
+          {/* Previous Usage Summary */}
+          <div className="grid grid-cols-2 gap-3 p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl shadow-sm">
+            <div>
+              <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Calendar className="w-3 h-3" />
+                Month Usage ({new Date().toLocaleString('default', { month: 'short' })})
+              </p>
+              <div className="flex gap-4">
+                <div className="text-center">
+                  <p className="text-[8px] font-bold text-slate-600 uppercase mb-0.5">EL</p>
+                  <p className={`text-xs font-black ${monthUsage.earned > 0 ? 'text-emerald-600' : 'text-slate-900'}`}>{monthUsage.earned}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[8px] font-bold text-slate-600 uppercase mb-0.5">CL</p>
+                  <p className={`text-xs font-black ${monthUsage.casual > 0 ? 'text-amber-500' : 'text-slate-900'}`}>{monthUsage.casual}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[8px] font-bold text-slate-600 uppercase mb-0.5">UN</p>
+                  <p className={`text-xs font-black ${monthUsage.unpaid > 0 ? 'text-rose-600' : 'text-slate-900'}`}>{monthUsage.unpaid}</p>
+                </div>
+              </div>
+            </div>
+            <div className="border-l border-indigo-100 pl-4">
+              <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Shield className="w-3 h-3" />
+                Remaining Leaves
+              </p>
+              <div>
+                <p className="text-[8px] font-bold text-slate-600 uppercase mb-0.5">EL Balance</p>
+                <p className="text-xs font-black text-blue-800">{carryForward} Days</p>
+              </div>
+            </div>
+          </div>
+
           {/* Date Flow - Compact */}
           <div className="relative flex items-center justify-between p-4 bg-white border border-gray-100 shadow-sm rounded-2xl">
             <div className="text-left">
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+              <p className="text-[9px] font-bold text-slate-600 uppercase tracking-wider mb-0.5">
                 Start
               </p>
               <p className="text-sm font-bold text-slate-900">
@@ -796,7 +866,7 @@ const ApprovalForm = () => {
               <ChevronRight className="w-4 h-4" />
             </div>
             <div className="text-right">
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+              <p className="text-[9px] font-bold text-slate-600 uppercase tracking-wider mb-0.5">
                 End
               </p>
               {showLeaveEditor ? (
@@ -808,7 +878,7 @@ const ApprovalForm = () => {
                     min={request.leave_date_start}
                     className="px-2 py-1 text-sm font-bold border border-gray-200 rounded-lg text-slate-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
-                  <p className="text-[10px] text-slate-400 font-medium">Original: {request.endDate}</p>
+                  <p className="text-[10px] text-slate-600 font-medium">Original: {request.endDate}</p>
                 </div>
               ) : (
                 <p className="text-sm font-bold text-slate-900">
@@ -827,7 +897,7 @@ const ApprovalForm = () => {
               </h5>
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Casual</label>
+                  <label className="text-[9px] font-bold text-amber-600 uppercase">Casual</label>
                   <input
                     type="number"
                     min="0"
@@ -838,7 +908,7 @@ const ApprovalForm = () => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Earned</label>
+                  <label className="text-[9px] font-bold text-emerald-600 uppercase">Earned</label>
                   <input
                     type="number"
                     min="0"
@@ -849,7 +919,7 @@ const ApprovalForm = () => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Unpaid</label>
+                  <label className="text-[9px] font-bold text-rose-600 uppercase">Unpaid</label>
                   <input
                     type="number"
                     min="0"
@@ -877,7 +947,7 @@ const ApprovalForm = () => {
           {/* Remarks Section - Compact */}
           <div className="space-y-3">
             <div className="p-4 border border-gray-100 bg-gray-50 rounded-xl">
-              <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <h5 className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <Quote className="w-3 h-3" />
                 Reason
               </h5>
