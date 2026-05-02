@@ -46,6 +46,12 @@ const ApprovalForm = () => {
     unpaid: 0,
   });
 
+  const [leaveBalance, setLeaveBalance] = useState({
+    cl_remaining: 0,
+    el_remaining: 0,
+    carried_forward_el: 0,
+  });
+
 
   // Show popup if params are missing - placed after all hooks
   const missingParams = !approverId || !id;
@@ -130,6 +136,23 @@ const ApprovalForm = () => {
         // Use department from leave_management, fallback to employee's department from users table
         department: data.department || employeeData?.department || "N/A",
       });
+
+      // Fetch Leave Quota for the applicant
+      const currentYear = new Date().getFullYear();
+      const { data: quotaData } = await supabase
+        .from("yearly_quota")
+        .select("*")
+        .eq("emp_id", data.emp_id)
+        .eq("year", currentYear)
+        .maybeSingle();
+
+      if (quotaData) {
+        setLeaveBalance({
+          cl_remaining: (quotaData.casual_leave_limit || 0) - (quotaData.casual_leave_used || 0),
+          el_remaining: (quotaData.earned_leave_limit || 0) - (quotaData.earned_leave_used || 0),
+          carried_forward_el: quotaData.carried_forward_el || 0,
+        });
+      }
       // Initialize editable end date with the original value
       setEditableEndDate(data.leave_date_end || "");
       setEditableLeaveType(data.leave_type || "");
@@ -802,6 +825,45 @@ const ApprovalForm = () => {
                   </p>
                   <p className="text-xs font-bold text-slate-900">{dayCount}</p>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Remaining Quota - Enhanced & Colorful */}
+          <div className="grid grid-cols-3 gap-3 p-1">
+            {/* CL Card */}
+            <div className="relative flex flex-col p-3 overflow-hidden bg-white border shadow-sm border-blue-100 rounded-2xl group transition-all hover:shadow-md hover:border-blue-200">
+              <div className="absolute top-0 right-0 w-12 h-12 -mt-4 -mr-4 transition-all rounded-full bg-blue-50/50 group-hover:bg-blue-100/50" />
+              <p className="text-[8px] font-bold text-blue-500 uppercase tracking-wider mb-1.5 relative z-10">
+                CL Balance
+              </p>
+              <div className="flex items-center gap-2 relative z-10">
+                <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.6)]"></div>
+                <p className="text-sm font-black text-slate-900">{leaveBalance.cl_remaining}</p>
+              </div>
+            </div>
+
+            {/* EL Card */}
+            <div className="relative flex flex-col p-3 overflow-hidden bg-white border shadow-sm border-emerald-100 rounded-2xl group transition-all hover:shadow-md hover:border-emerald-200">
+              <div className="absolute top-0 right-0 w-12 h-12 -mt-4 -mr-4 transition-all rounded-full bg-emerald-50/50 group-hover:bg-emerald-100/50" />
+              <p className="text-[8px] font-bold text-emerald-500 uppercase tracking-wider mb-1.5 relative z-10">
+                EL Balance
+              </p>
+              <div className="flex items-center gap-2 relative z-10">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.6)]"></div>
+                <p className="text-sm font-black text-slate-900">{leaveBalance.el_remaining}</p>
+              </div>
+            </div>
+
+            {/* Carry Forward EL Card */}
+            <div className="relative flex flex-col p-3 overflow-hidden bg-white border shadow-sm border-amber-100 rounded-2xl group transition-all hover:shadow-md hover:border-amber-200">
+              <div className="absolute top-0 right-0 w-12 h-12 -mt-4 -mr-4 transition-all rounded-full bg-amber-50/50 group-hover:bg-amber-100/50" />
+              <p className="text-[8px] font-bold text-amber-500 uppercase tracking-wider mb-1.5 relative z-10">
+                CF EL
+              </p>
+              <div className="flex items-center gap-2 relative z-10">
+                <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.6)]"></div>
+                <p className="text-sm font-black text-slate-900">{leaveBalance.carried_forward_el}</p>
               </div>
             </div>
           </div>
