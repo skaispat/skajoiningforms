@@ -14,6 +14,8 @@ import {
   ChevronRight,
   Quote,
   CloudHail,
+  AlertCircle,
+  CheckCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { sendWhatsappMessageToHr } from "../utils/sendWhatsappMessageToHr";
@@ -49,6 +51,8 @@ const ApprovalForm = () => {
   const [leaveBalance, setLeaveBalance] = useState({
     cl_remaining: 0,
     el_remaining: 0,
+    cl_used: 0,
+    el_used: 0,
     carried_forward_el: 0,
   });
 
@@ -150,16 +154,58 @@ const ApprovalForm = () => {
         setLeaveBalance({
           cl_remaining: (quotaData.casual_leave_limit || 0) - (quotaData.casual_leave_used || 0),
           el_remaining: (quotaData.earned_leave_limit || 0) - (quotaData.earned_leave_used || 0),
+          cl_used: quotaData.casual_leave_used || 0,
+          el_used: quotaData.earned_leave_used || 0,
           carried_forward_el: quotaData.carried_forward_el || 0,
         });
       }
       // Initialize editable end date with the original value
       setEditableEndDate(data.leave_date_end || "");
       setEditableLeaveType(data.leave_type || "");
+      let initialCasual = data.casual || 0;
+      let initialEarned = data.earned || 0;
+      let initialUnpaid = data.unpaid || 0;
+
+      // Auto-calculate for all pending requests to ensure limits are respected
+      if (data.status === 'Pending' || data.status === 'Pending HOD' || data.status === 'Pending HR') {
+        const appliedDays = Math.ceil(Math.abs(new Date(data.leave_date_end) - new Date(data.leave_date_start)) / (1000 * 60 * 60 * 24)) + 1;
+        const targetDate = new Date(data.leave_date_start);
+        const fyMonthIndex = targetDate.getMonth() >= 3 ? targetDate.getMonth() - 2 : targetDate.getMonth() + 10;
+
+        const maxAccEL = fyMonthIndex * 2;
+        const maxAccCL = fyMonthIndex * 1;
+
+        const usedEL = quotaData?.earned_leave_used || 0;
+        const usedCL = quotaData?.casual_leave_used || 0;
+        const carriedForwardEL = quotaData?.carried_forward_el || 0;
+
+        const availableAccEL = Math.max(0, maxAccEL + carriedForwardEL - usedEL);
+        const availableAccCL = Math.max(0, maxAccCL - usedCL);
+
+        if (data.leave_type === 'UnPaid Leave') {
+          initialUnpaid = appliedDays;
+        } else {
+          const effectiveCL = Math.min(3, availableAccCL);
+          const maxPaidPossible = Math.min(10, effectiveCL + availableAccEL);
+
+          if (appliedDays > maxPaidPossible) {
+            initialUnpaid = appliedDays - maxPaidPossible;
+            let paidDays = maxPaidPossible;
+            initialCasual = Math.min(paidDays, effectiveCL);
+            initialEarned = paidDays - initialCasual;
+          } else {
+            let paidDays = appliedDays;
+            initialCasual = Math.min(paidDays, effectiveCL);
+            initialEarned = paidDays - initialCasual;
+            initialUnpaid = 0;
+          }
+        }
+      }
+
       setLeaveSplits({
-        casual: data.casual || 0,
-        earned: data.earned || 0,
-        unpaid: data.unpaid || 0,
+        casual: initialCasual,
+        earned: initialEarned,
+        unpaid: initialUnpaid,
       });
 
       if (approverData) {
@@ -190,6 +236,47 @@ const ApprovalForm = () => {
     const endDate = new Date(end);
     const diffTime = Math.abs(endDate - startDate);
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  };
+
+  const handleAutoFillSplits = (newType, newEndDate) => {
+    if (!request || !request.leave_date_start) return;
+
+    const appliedDays = calculateDays(request.leave_date_start, newEndDate);
+    const targetDate = new Date(request.leave_date_start);
+    const fyMonthIndex = targetDate.getMonth() >= 3 ? targetDate.getMonth() - 2 : targetDate.getMonth() + 10;
+
+    const maxAccEL = fyMonthIndex * 2;
+    const maxAccCL = fyMonthIndex * 1;
+
+    const usedEL = leaveBalance.el_used || 0;
+    const usedCL = leaveBalance.cl_used || 0;
+    const carriedForwardEL = leaveBalance.carried_forward_el || 0;
+
+    const availableAccEL = Math.max(0, maxAccEL + carriedForwardEL - usedEL);
+    const availableAccCL = Math.max(0, maxAccCL - usedCL);
+
+    if (newType === 'UnPaid Leave') {
+      setLeaveSplits({ casual: 0, earned: 0, unpaid: appliedDays });
+    } else {
+      const effectiveCL = Math.min(3, availableAccCL);
+      const maxPaidPossible = Math.min(10, effectiveCL + availableAccEL);
+
+      if (appliedDays > maxPaidPossible) {
+        const lwpDays = appliedDays - maxPaidPossible;
+        const paidDays = maxPaidPossible;
+
+        let clToUse = Math.min(paidDays, effectiveCL);
+        let elToUse = paidDays - clToUse;
+
+        setLeaveSplits({ casual: clToUse, earned: elToUse, unpaid: lwpDays });
+      } else {
+        const paidDays = appliedDays;
+        let clToUse = Math.min(paidDays, effectiveCL);
+        let elToUse = paidDays - clToUse;
+
+        setLeaveSplits({ casual: clToUse, earned: elToUse, unpaid: 0 });
+      }
+    }
   };
 
   const handleAction = async (action) => {
@@ -793,18 +880,7 @@ const ApprovalForm = () => {
                         onChange={(e) => {
                           const newType = e.target.value;
                           setEditableLeaveType(newType);
-                          // Automatically adjust splits based on the selected type
-                          const totalDays = calculateDays(
-                            request.leave_date_start,
-                            editableEndDate || request.leave_date_end,
-                          );
-                          if (newType === "Casual Leave") {
-                            setLeaveSplits({ casual: totalDays, earned: 0, unpaid: 0 });
-                          } else if (newType === "Earned Leave") {
-                            setLeaveSplits({ casual: 0, earned: totalDays, unpaid: 0 });
-                          } else if (newType === "UnPaid Leave") {
-                            setLeaveSplits({ casual: 0, earned: 0, unpaid: totalDays });
-                          }
+                          handleAutoFillSplits(newType, editableEndDate);
                         }}
                         className="w-full px-2 py-1 text-xs font-bold border border-gray-200 rounded-lg text-slate-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       >
@@ -890,7 +966,11 @@ const ApprovalForm = () => {
                   <input
                     type="date"
                     value={editableEndDate}
-                    onChange={(e) => setEditableEndDate(e.target.value)}
+                    onChange={(e) => {
+                      const newEndDate = e.target.value;
+                      setEditableEndDate(newEndDate);
+                      handleAutoFillSplits(editableLeaveType, newEndDate);
+                    }}
                     min={request.leave_date_start}
                     className="px-2 py-1 text-sm font-bold border border-gray-200 rounded-lg text-slate-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
@@ -959,6 +1039,73 @@ const ApprovalForm = () => {
               </div>
             </div>
           )}
+
+          {showLeaveEditor && (() => {
+            let leaveWarning = null;
+            let leaveNote = null;
+
+            const startDate = request.leave_date_start;
+            const endDate = editableEndDate || request.leave_date_end;
+            const leaveType = editableLeaveType || request.leave_type;
+
+            if (startDate && endDate && leaveType) {
+              const appliedDays = calculateDays(startDate, endDate);
+              const targetDate = new Date(startDate);
+              const fyMonthIndex = targetDate.getMonth() >= 3 ? targetDate.getMonth() - 2 : targetDate.getMonth() + 10;
+
+              const maxAccEL = fyMonthIndex * 2;
+              const maxAccCL = fyMonthIndex * 1;
+
+              const usedEL = leaveBalance.el_used || 0;
+              const usedCL = leaveBalance.cl_used || 0;
+              const carriedForwardEL = leaveBalance.carried_forward_el || 0;
+
+              const availableAccEL = Math.max(0, maxAccEL + carriedForwardEL - usedEL);
+              const availableAccCL = Math.max(0, maxAccCL - usedCL);
+
+              if (leaveType === 'UnPaid Leave') {
+                leaveWarning = `आपने कुल ${appliedDays} दिन की छुट्टी के लिए आवेदन किया है। आपने LWP (बिना वेतन की छुट्टी) का चयन किया है। आपके पूरे ${appliedDays} दिन का वेतन काटा जाएगा।`;
+              } else {
+                const effectiveCL = Math.min(3, availableAccCL);
+                const maxPaidPossible = Math.min(10, effectiveCL + availableAccEL);
+                const totalAvailable = availableAccEL + availableAccCL;
+
+                if (appliedDays > maxPaidPossible) {
+                  const lwpDays = appliedDays - maxPaidPossible;
+                  if (totalAvailable > maxPaidPossible) {
+                    leaveWarning = `आपने कुल ${appliedDays} दिन की छुट्टी के लिए आवेदन किया है। आपके पास कुल ${totalAvailable} छुट्टियां (EL: ${availableAccEL}, CL: ${availableAccCL}) हैं, लेकिन आप एक बार में अधिकतम 10 दिन (जिसमें अधिकतम 3 CL शामिल हो सकते हैं) की ही सवेतन छुट्टी ले सकते हैं। अतः आपके अतिरिक्त ${lwpDays} दिन LWP (बिना वेतन) माने जाएंगे।`;
+                  } else {
+                    leaveWarning = `आपने कुल ${appliedDays} दिन की छुट्टी के लिए आवेदन किया है। आपके पास केवल ${totalAvailable} छुट्टियां (EL: ${availableAccEL}, CL: ${availableAccCL}) उपलब्ध हैं। आपके अतिरिक्त ${lwpDays} दिन LWP (बिना वेतन) माने जाएंगे।`;
+                  }
+                } else {
+                  leaveNote = `आपने कुल ${appliedDays} दिन की छुट्टी के लिए आवेदन किया है। आपके पास पर्याप्त छुट्टियां (कुल: ${totalAvailable} -> EL: ${availableAccEL}, CL: ${availableAccCL}) उपलब्ध हैं। आपके वेतन से कोई कटौती नहीं होगी।`;
+                }
+              }
+            }
+
+            if (leaveWarning) {
+              return (
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex gap-3 items-start animate-in fade-in zoom-in duration-300">
+                  <AlertCircle className="text-rose-600 shrink-0 mt-0.5" size={20} />
+                  <div>
+                    <p className="text-sm font-bold text-rose-900 leading-snug">छुट्टी अलर्ट (Leave Alert)</p>
+                    <p className="text-xs text-rose-700 mt-1 font-medium leading-relaxed">{leaveWarning}</p>
+                  </div>
+                </div>
+              );
+            } else if (leaveNote) {
+              return (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex gap-3 items-start animate-in fade-in zoom-in duration-300">
+                  <CheckCircle className="text-emerald-600 shrink-0 mt-0.5" size={20} />
+                  <div>
+                    <p className="text-sm font-bold text-emerald-900 leading-snug">छुट्टी विवरण (Leave Details)</p>
+                    <p className="text-xs text-emerald-700 mt-1 font-medium leading-relaxed">{leaveNote}</p>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
 
           {/* Remarks Section - Compact */}
           <div className="space-y-3">
