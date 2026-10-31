@@ -24,6 +24,7 @@ import {
   sendRejectedMessageToEmployee,
   sendHodRejectedMessageToEmployee,
 } from "../utils/sendWhatsappMessageToEmployee";
+import { isActiveHrUser } from "../utils/isActiveHrUser";
 
 const ApprovalForm = () => {
   const { approverId, id } = useParams();
@@ -302,6 +303,12 @@ const ApprovalForm = () => {
 
       if (!isHodAction && !isHrAction) {
         toast.error("Action already taken or invalid status.");
+        setActionLoading(false);
+        return;
+      }
+
+      if (isHrAction && !isActiveHrUser(approver)) {
+        toast.error("Only an active HR user can approve at the HR stage.");
         setActionLoading(false);
         return;
       }
@@ -688,10 +695,12 @@ const ApprovalForm = () => {
   const isPendingHOD =
     request.status === "Pending" || request.status === "Pending HOD";
   const isPendingHR = request.status === "Pending HR";
-  const showLeaveEditor = isPendingHR || (isPendingHOD && isHodSameAsHr);
+  const isApproverHr = isActiveHrUser(approver);
+  const showLeaveEditor = (isPendingHR && isApproverHr) || (isPendingHOD && isHodSameAsHr);
 
-  // User Logic: Block approverId 1 during HOD phase, allow during HR phase
-  const isActionable = (isPendingHOD && (approverId !== "1")) || isPendingHR;
+  // User Logic: Block approverId 1 during HOD phase; during HR phase only an active HR user can act
+  const isActionable = (isPendingHOD && (approverId !== "1")) || (isPendingHR && isApproverHr);
+  const canTakeAction = isActionable || (isPendingHOD && isHodSameAsHr);
 
   let statusMessage = null;
   let statusStyles = {
@@ -721,6 +730,8 @@ const ApprovalForm = () => {
         iconColor: "text-red-600",
         Icon: X,
       };
+    } else if (isPendingHR) {
+      statusMessage = `The leave for ${request.employee_name} has been approved by HOD and is awaiting HR approval.`;
     } else {
       statusMessage =
         "Please Wait Until The HOD Has Approved Or Rejected The Leave Request.";
@@ -1151,7 +1162,7 @@ const ApprovalForm = () => {
 
         {/* Footer Action Area - Compact */}
         {request &&
-          (isActionable || isHodSameAsHr) &&
+          canTakeAction &&
           request.status !== "Approved" &&
           !request.status.includes("Rejected") && (
 
@@ -1172,7 +1183,7 @@ const ApprovalForm = () => {
               <div className="grid grid-cols-2 gap-3 mt-3">
                 <button
                   onClick={() => handleAction("reject")}
-                  disabled={actionLoading || (!isActionable && !isHodSameAsHr)}
+                  disabled={actionLoading || !canTakeAction}
                   className="flex items-center justify-center gap-2 py-3 text-xs font-bold text-red-600 transition-all bg-white border border-red-100 rounded-xl hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {actionLoading ? (
@@ -1186,7 +1197,7 @@ const ApprovalForm = () => {
                 </button>
                 <button
                   onClick={() => handleAction("approve")}
-                  disabled={actionLoading || (!isActionable && !isHodSameAsHr)}
+                  disabled={actionLoading || !canTakeAction}
                   className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs text-white bg-[#16A34A] hover:bg-[#15803d] shadow-lg shadow-green-100 hover:shadow-xl hover:shadow-green-200 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {actionLoading ? (

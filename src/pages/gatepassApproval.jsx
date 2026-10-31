@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient';
 import { FileText, User, Briefcase, Calendar, Clock, MessageSquare, Check, X, Shield, ChevronRight, Quote, MapPin, Phone, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { sendGatePassMessageToHr, sendGatePassApprovedToEmployee, sendGatePassRejectedToEmployee, sendGatePassHodRejectedToEmployee } from '../utils/sendGatePassWhatsapp';
+import { isActiveHrUser } from '../utils/isActiveHrUser';
 
 const GatePassApproval = () => {
     const { approverId, id } = useParams();
@@ -124,6 +125,12 @@ const GatePassApproval = () => {
 
             if (!isHodAction && !isHrAction) {
                 toast.error('Action already taken or invalid status.');
+                setActionLoading(false);
+                return;
+            }
+
+            if (isHrAction && !isActiveHrUser(approver)) {
+                toast.error('Only an active HR user can approve at the HR stage.');
                 setActionLoading(false);
                 return;
             }
@@ -381,10 +388,13 @@ const GatePassApproval = () => {
     if (error) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-500 font-medium">{error}</div>;
     if (!request) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-slate-500">Request not found</div>;
 
-    const isActionable = request.status === 'Pending' || request.status === 'Pending HOD' || request.status === 'Pending HR';
+    const isPendingHOD = request.status === 'Pending' || request.status === 'Pending HOD';
+    const isPendingHR = request.status === 'Pending HR';
+    // During HR phase only an active HR user can act
+    const isActionable = isPendingHOD || (isPendingHR && isActiveHrUser(approver));
 
-    const notActionableReason = !isActionable && (request.status === 'Pending' || request.status === 'Pending HOD' || request.status === 'Pending HR')
-        ? "You are not authorized to approve this request at this stage."
+    const notActionableReason = !isActionable && isPendingHR
+        ? "This request has been approved by HOD and is awaiting HR approval."
         : null;
 
     if (actionSuccess) {
@@ -576,7 +586,7 @@ const GatePassApproval = () => {
                 </div>
 
                 {/* Footer Action Area */}
-                {request && (
+                {request && isActionable && (
                     <div className="p-4 bg-white border-t border-gray-100 shadow-xl z-30">
                         <div className="flex gap-3 items-end">
                             <div className="relative flex-1">
